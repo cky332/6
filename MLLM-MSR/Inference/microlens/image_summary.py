@@ -16,8 +16,8 @@ os.environ['CURL_CA_BUNDLE'] = ''
 CACHE_DIR = os.environ.get('HF_HOME', None)
 DATA_DIR = os.environ.get('MICROLENS_DATA_DIR', '/home/mlsnrs/data/cky/data/MicroLens-50k')
 OUTPUT_FILE = 'image_summary.csv'
-NUM_GPUS = 4  # 使用的GPU数量
-BATCH_SIZE = 2  # 每个GPU的batch size
+NUM_GPUS = 3  # 使用的GPU数量
+BATCH_SIZE = 8  # 每个GPU的batch size（真正的批量处理）
 SAVE_EVERY = 50  # 每个进程处理多少张后保存
 # =======================================
 
@@ -72,6 +72,64 @@ def save_results_safely(results, output_file):
         return len(existing)
 
 
+def pad_images_to_same_size(images):
+    """将一批图片padding到相同大小"""
+    if len(images) == 1:
+        return images
+
+    max_width = max(img.width for img in images)
+    max_height = max(img.height for img in images)
+
+    padded_images = []
+    for img in images:
+        if img.width == max_width and img.height == max_height:
+            padded_images.append(img)
+        else:
+            delta_width = max_width - img.width
+            delta_height = max_height - img.height
+            padding = (
+                delta_width // 2,
+                delta_height // 2,
+                delta_width - (delta_width // 2),
+                delta_height - (delta_height // 2)
+            )
+            new_img = ImageOps.expand(img, border=padding, fill='black')
+            padded_images.append(new_img)
+
+    return padded_images
+
+
+def process_batch(model, processor, images, device):
+    """批量处理多张图片"""
+    # Padding图片到相同大小
+    padded_images = pad_images_to_same_size(images)
+
+    # 构建批量输入
+    prompts = [prompt] * len(padded_images)
+
+    model_inputs = processor(
+        text=prompts,
+        images=padded_images,
+        return_tensors="pt",
+        padding=True
+    ).to(device)
+
+    with torch.no_grad():
+        with torch.cuda.amp.autocast():
+            outputs = model.generate(**model_inputs, max_new_tokens=200)
+
+    # 解码所有输出
+    answers = processor.batch_decode(outputs, skip_special_tokens=True)
+    answers = [ans.split("[/INST]")[1] if "[/INST]" in ans else ans for ans in answers]
+
+    # 清理显存
+    del model_inputs, outputs
+    gc.collect()
+    torch.cuda.empty_cache()
+
+    return answers
+
+
 def worker_process(rank, num_gpus, dataset_indices, return_dict):
     """
     每个GPU上运行的worker进程
@@ -84,7 +142,7 @@ def worker_process(rank, num_gpus, dataset_indices, return_dict):
     device = f"cuda:{rank}"
     torch.cuda.set_device(rank)
 
-    print(f"[GPU {rank}] Starting worker, processing {len(dataset_indices)} images")
+    print(f"[GPU {rank}] Starting worker, processing {len(dataset_indices)} images, batch_size={BATCH_SIZE}")
 
     # 每个进程加载自己的4-bit量化模型到指定GPU
     quantization_config = BitsAndBytesConfig(
@@ -120,10 +178,16 @@ def worker_process(rank, num_gpus, dataset_indices, return_dict):
     processed_count = 0
     skipped_count = 0
 
-    # 使用tqdm显示进度
-    pbar = tqdm(dataset_indices, desc=f"GPU {rank}", position=rank)
+    # 收集待处理的batch
+    batch_indices = []
+    batch_images = []
+    batch_item_ids = []
 
-    for idx in pbar:
+    # 计算总batch数用于进度条
+    total_batches = (len(dataset_indices) + BATCH_SIZE - 1) // BATCH_SIZE
+    pbar = tqdm(total=total_batches, desc=f"GPU {rank}", position=rank)
+
+    for idx in dataset_indices:
         example = train_data[idx]
         item_id = get_item_id(example)
 
@@ -132,41 +196,70 @@ def worker_process(rank, num_gpus, dataset_indices, return_dict):
             skipped_count += 1
             continue
 
-        try:
-            # 处理单张图片
-            image = example['image']
-            model_inputs = processor(
-                text=prompt,
-                images=image,
-                return_tensors="pt",
-                padding=True
-            ).to(device)
+        # 收集到batch中
+        batch_indices.append(idx)
+        batch_images.append(example['image'])
+        batch_item_ids.append(item_id)
 
-            with torch.no_grad():
-                with torch.cuda.amp.autocast():
-                    outputs = model.generate(**model_inputs, max_new_tokens=200)
+        # 当batch满了，处理这个batch
+        if len(batch_images) >= BATCH_SIZE:
+            try:
+                answers = process_batch(model, processor, batch_images, device)
 
-            ans = processor.batch_decode(outputs, skip_special_tokens=True)[0]
-            ans = ans.split("[/INST]")[1] if "[/INST]" in ans else ans
+                for item_id, answer in zip(batch_item_ids, answers):
+                    results.append({'item_id': item_id, 'summary': answer})
+                    processed_ids.add(item_id)
+                    processed_count += 1
 
-            results.append({'item_id': item_id, 'summary': ans})
-            processed_ids.add(item_id)
-            processed_count += 1
+                pbar.update(1)
+                pbar.set_postfix({'processed': processed_count, 'batch': BATCH_SIZE})
 
-            # 清理显存
-            del model_inputs, outputs
-            gc.collect()
-            torch.cuda.empty_cache()
+            except Exception as e:
+                tqdm.write(f"[GPU {rank}] Batch error: {e}, falling back to single processing")
+                # 如果批量处理失败，逐个处理
+                for img, item_id in zip(batch_images, batch_item_ids):
+                    try:
+                        answers = process_batch(model, processor, [img], device)
+                        results.append({'item_id': item_id, 'summary': answers[0]})
+                        processed_ids.add(item_id)
+                        processed_count += 1
+                    except Exception as e2:
+                        tqdm.write(f"[GPU {rank}] Error processing {item_id}: {e2}")
+
+            # 清空batch
+            batch_indices = []
+            batch_images = []
+            batch_item_ids = []
 
             # 定期保存
-            if processed_count % SAVE_EVERY == 0:
+            if processed_count % SAVE_EVERY == 0 and results:
                 total_saved = save_results_safely(results, OUTPUT_FILE)
-                pbar.set_postfix({'saved': total_saved})
                 results = []  # 清空已保存的结果
 
+    # 处理剩余的不足一个batch的图片
+    if batch_images:
+        try:
+            answers = process_batch(model, processor, batch_images, device)
+
+            for item_id, answer in zip(batch_item_ids, answers):
+                results.append({'item_id': item_id, 'summary': answer})
+                processed_ids.add(item_id)
+                processed_count += 1
+
+            pbar.update(1)
+
         except Exception as e:
-            tqdm.write(f"[GPU {rank}] Error processing {item_id}: {e}")
-            continue
+            tqdm.write(f"[GPU {rank}] Final batch error: {e}, falling back to single processing")
+            for img, item_id in zip(batch_images, batch_item_ids):
+                try:
+                    answers = process_batch(model, processor, [img], device)
+                    results.append({'item_id': item_id, 'summary': answers[0]})
+                    processed_ids.add(item_id)
+                    processed_count += 1
+                except Exception as e2:
+                    tqdm.write(f"[GPU {rank}] Error processing {item_id}: {e2}")
+
+    pbar.close()
 
     # 保存剩余结果
     if results:
@@ -184,6 +277,7 @@ def main():
     print(f"Multi-GPU Image Summary Generator")
     print(f"=" * 60)
     print(f"Using {NUM_GPUS} GPUs")
+    print(f"Batch size per GPU: {BATCH_SIZE}")
     print(f"Data directory: {DATA_DIR}")
     print(f"Output file: {OUTPUT_FILE}")
     print(f"=" * 60)
@@ -217,7 +311,7 @@ def main():
 
     print(f"\nDistribution:")
     for i, indices in enumerate(indices_per_gpu):
-        print(f"  GPU {i}: {len(indices)} images")
+        print(f"  GPU {i}: {len(indices)} images ({len(indices)//BATCH_SIZE} batches)")
 
     # 启动多进程
     print(f"\nStarting {num_gpus} worker processes...")
@@ -253,7 +347,8 @@ def main():
     print(f"Total processed: {total_processed}")
     print(f"Total skipped: {total_skipped}")
     print(f"Time elapsed: {elapsed_time/60:.2f} minutes")
-    print(f"Speed: {total_processed/elapsed_time:.2f} images/second")
+    if elapsed_time > 0:
+        print(f"Speed: {total_processed/elapsed_time:.2f} images/second")
     print(f"Results saved to: {OUTPUT_FILE}")
     print(f"=" * 60)
 
