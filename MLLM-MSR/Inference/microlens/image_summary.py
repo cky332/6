@@ -79,7 +79,7 @@ def gpu_computation(batch, rank):
     batch['image'] = padded_images
 
     # Your big GPU call goes here, for example:
-    model_inputs = processor([prompt for i in range(len(batch['image']))], batch['image'], return_tensors="pt",padding=True).to(device)
+    model_inputs = processor(text=[prompt for i in range(len(batch['image']))], images=batch['image'], return_tensors="pt", padding=True).to(device)
 
     with torch.no_grad() and autocast():
         outputs = model.generate(**model_inputs, max_new_tokens=200)
