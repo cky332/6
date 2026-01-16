@@ -9,9 +9,15 @@ from torch.cuda.amp import autocast
 import logging
 
 os.environ['CURL_CA_BUNDLE'] = ''
-os.environ["CUDA_VISIBLE_DEVICES"] = "2,3,4,5,6,7"
+# Note: CUDA_VISIBLE_DEVICES should be set externally when running the script
+# e.g., CUDA_VISIBLE_DEVICES=2,3,5,7 python script.py
+# Do NOT hardcode it here as it conflicts with external settings
 
 logging.getLogger("transformers").setLevel(logging.ERROR)
+
+# Get actual number of available GPUs (after CUDA_VISIBLE_DEVICES filtering)
+NUM_GPUS = torch.cuda.device_count()
+print(f"Number of available GPUs: {NUM_GPUS}")
 
 model_id = "meta-llama/Meta-Llama-3-8B-Instruct"
 tokenizer = AutoTokenizer.from_pretrained(model_id, token='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')
@@ -119,9 +125,15 @@ def infer(user, items, rank):
     return last_preference
 
 def gpu_computation(batch, rank):
-    device = f"cuda:{rank % torch.cuda.device_count()}"
-    # model.to(device)
+    # Map rank to GPU device index
+    # When CUDA_VISIBLE_DEVICES=2,3,5,7, torch sees them as cuda:0,1,2,3
+    # rank is assigned 0 to num_proc-1, so we map rank to available devices
+    num_gpus = torch.cuda.device_count()
+    device_idx = rank % num_gpus
+    device = f"cuda:{device_idx}"
+
     if rank not in pipelines:
+        print(f"Rank {rank} initializing pipeline on {device}")
         pipelines[rank] = transformers.pipeline(
             "text-generation",
             model=model_id,
@@ -138,7 +150,15 @@ def gpu_computation(batch, rank):
 
 if __name__ == "__main__":
     set_start_method("spawn")
-    num_proc = 6
+
+    # Validate GPU availability
+    if NUM_GPUS == 0:
+        raise RuntimeError("No GPUs available. Please check CUDA_VISIBLE_DEVICES setting.")
+
+    # Use number of available GPUs as num_proc to ensure 1 process per GPU
+    # This prevents multiple processes from loading models on the same GPU
+    num_proc = NUM_GPUS
+    print(f"Using {num_proc} processes (one per GPU)")
 
     chunk_size = 3000
 
