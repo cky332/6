@@ -1,28 +1,27 @@
 import torch
 from transformers import AutoProcessor, LlavaNextForConditionalGeneration, BitsAndBytesConfig
 from datasets import load_dataset
-from torchvision import transforms
 from PIL import ImageOps
-from torch.cuda.amp import autocast
 import os
 import pandas as pd
 from tqdm import tqdm
 import gc
+import time
 
 os.environ['CURL_CA_BUNDLE'] = ''
-os.environ["CUDA_VISIBLE_DEVICES"]="0,1,2,3"  # 使用4张4090
+# 注意：如果你通过命令行设置 CUDA_VISIBLE_DEVICES，这里会被覆盖
+# os.environ["CUDA_VISIBLE_DEVICES"]="0,1,2,3"  # 使用4张4090
 
 # ============ Configuration ============
-# Set your Hugging Face cache directory here, or use environment variable HF_HOME
-# Default: ~/.cache/huggingface
-CACHE_DIR = os.environ.get('HF_HOME', None)  # Set to None to use default cache
-
-# Set your MicroLens data directory here
-# The directory should contain image files (jpg, png, etc.)
+CACHE_DIR = os.environ.get('HF_HOME', None)
 DATA_DIR = os.environ.get('MICROLENS_DATA_DIR', '/home/mlsnrs/data/cky/data/MicroLens-50k')
+BATCH_SIZE = 1  # 减小到1，更稳定
+OUTPUT_FILE = 'image_summary.csv'
 # =======================================
 
-#model_id  = "lmms-lab/llama3-llava-next-8b"
+print(f"Using {torch.cuda.device_count()} GPUs")
+print(f"Loading model...")
+
 model_id = "llava-hf/llava-v1.6-mistral-7b-hf"
 
 # 使用4bit量化大幅减少显存占用
@@ -38,90 +37,118 @@ model = LlavaNextForConditionalGeneration.from_pretrained(
     cache_dir=CACHE_DIR,
     attn_implementation="flash_attention_2",
     torch_dtype=torch.float16,
-    quantization_config=quantization_config,  # 启用4bit量化
-    device_map="auto",  # 自动分布到多张GPU
+    quantization_config=quantization_config,
+    device_map="auto",
     low_cpu_mem_usage=True,
 ).eval()
+
+print(f"Model loaded! Device: {model.device}")
+
+processor = AutoProcessor.from_pretrained(model_id)
 
 prompt = "[INST] <image>\nPlease describe this image, which is a cover of a video." \
          " Provide a detailed description in one continuous paragraph, including content information and visual features such as colors, objects, text," \
          " and any notable elements present in the image.[/INST]"
 
 
-def add_image_file_path(example):
+def get_item_id(example):
     file_path = example['image'].filename
     filename = os.path.splitext(os.path.basename(file_path))[0]
-    example['item_id'] = filename
-    return example
-
-# Use DATA_DIR from configuration
-img_dir = DATA_DIR
-dataset = load_dataset("imagefolder", data_dir=img_dir)
-dataset = dataset.map(lambda x: add_image_file_path(x))
-print(dataset)
-
-processor = AutoProcessor.from_pretrained(model_id, return_tensors=torch.float16)
+    return filename
 
 
-def gpu_computation(batch):
-    # 模型已经通过device_map="auto"分布到多张GPU，获取模型所在的设备
+def process_single_image(image):
+    """处理单张图片"""
     device = model.device
 
-    batch_images = batch['image']
-
-    max_width = max(img.width for img in batch_images)
-    max_height = max(img.height for img in batch_images)
-
-    padded_images = []
-    for img in batch_images:
-        if img.width == max_width and img.height == max_height:
-            padded_images.append(img)
-            continue
-        else:
-            delta_width = max_width - img.width
-            delta_height = max_height - img.height
-
-            padding = (
-            delta_width // 2, delta_height // 2, delta_width - (delta_width // 2), delta_height - (delta_height // 2))
-
-            new_img = ImageOps.expand(img, border=padding, fill='black')
-            padded_images.append(new_img)
-
-    batch['image'] = padded_images
-
-    # 处理输入
-    model_inputs = processor(text=[prompt for i in range(len(batch['image']))], images=batch['image'], return_tensors="pt", padding=True).to(device)
+    model_inputs = processor(
+        text=prompt,
+        images=image,
+        return_tensors="pt",
+        padding=True
+    ).to(device)
 
     with torch.no_grad():
-        with autocast():
+        with torch.cuda.amp.autocast():
             outputs = model.generate(**model_inputs, max_new_tokens=200)
 
-    ans = processor.batch_decode(outputs, skip_special_tokens=True)
-    ans = [a.split("[/INST]")[1] for a in ans]
+    ans = processor.batch_decode(outputs, skip_special_tokens=True)[0]
+    ans = ans.split("[/INST]")[1] if "[/INST]" in ans else ans
 
-    # 清理GPU缓存
+    # 清理
     del model_inputs, outputs
     gc.collect()
     torch.cuda.empty_cache()
 
-    return {"summary": ans}
+    return ans
 
-#f.close()
+
+def load_existing_results(output_file):
+    """加载已有结果，支持断点续传"""
+    if os.path.exists(output_file):
+        df = pd.read_csv(output_file)
+        return set(df['item_id'].astype(str).tolist())
+    return set()
+
 
 if __name__ == "__main__":
-    # 使用单进程处理，模型通过device_map="auto"自动分布到多张GPU
-    # batch_size=2 减少显存占用，如果还是OOM可以改成1
-    updated_dataset = dataset.map(
-        gpu_computation,
-        batched=True,
-        batch_size=2,  # 减小batch size以节省显存
-        with_rank=False,  # 不需要rank，因为不使用多进程
-        num_proc=1,  # 单进程，模型已自动分布到多GPU
-    )
+    print(f"Loading dataset from {DATA_DIR}...")
+    dataset = load_dataset("imagefolder", data_dir=DATA_DIR)
+    train_data = dataset['train']
+    total = len(train_data)
+    print(f"Total images: {total}")
 
-    train_dataset = updated_dataset['train']
-    item_id = train_dataset['item_id']
-    summary = train_dataset['summary']
-    df = pd.DataFrame({'item_id': item_id, 'summary': summary})
-    df.to_csv('image_summary.csv', index=False)
+    # 加载已处理的结果（断点续传）
+    processed_ids = load_existing_results(OUTPUT_FILE)
+    print(f"Already processed: {len(processed_ids)} images")
 
+    # 准备结果列表
+    results = []
+
+    # 如果有已处理的，先加载
+    if processed_ids:
+        existing_df = pd.read_csv(OUTPUT_FILE)
+        results = existing_df.to_dict('records')
+
+    # 预热模型
+    print("Warming up model with first image...")
+    start_time = time.time()
+    first_example = train_data[0]
+    first_id = get_item_id(first_example)
+    if first_id not in processed_ids:
+        _ = process_single_image(first_example['image'])
+    print(f"Warmup done in {time.time() - start_time:.2f}s")
+
+    # 处理所有图片
+    print("\nProcessing images...")
+    skipped = 0
+
+    for i in tqdm(range(total), desc="Processing"):
+        example = train_data[i]
+        item_id = get_item_id(example)
+
+        # 跳过已处理的
+        if item_id in processed_ids:
+            skipped += 1
+            continue
+
+        try:
+            summary = process_single_image(example['image'])
+            results.append({'item_id': item_id, 'summary': summary})
+            processed_ids.add(item_id)
+
+            # 每100张保存一次（断点续传）
+            if len(results) % 100 == 0:
+                df = pd.DataFrame(results)
+                df.to_csv(OUTPUT_FILE, index=False)
+                tqdm.write(f"Saved {len(results)} results")
+
+        except Exception as e:
+            tqdm.write(f"Error processing {item_id}: {e}")
+            continue
+
+    # 最终保存
+    df = pd.DataFrame(results)
+    df.to_csv(OUTPUT_FILE, index=False)
+    print(f"\nDone! Processed {len(results)} images, skipped {skipped} (already done)")
+    print(f"Results saved to {OUTPUT_FILE}")
