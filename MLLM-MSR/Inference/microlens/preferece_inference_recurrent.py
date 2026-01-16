@@ -8,19 +8,21 @@ import pandas as pd
 from torch.cuda.amp import autocast
 import logging
 
+DATA_DIR = "/home/mlsnrs/data/cky/data/MicroLens-50k"
+
 os.environ['CURL_CA_BUNDLE'] = ''
 os.environ["CUDA_VISIBLE_DEVICES"] = "2,3,4,5,6,7"
 
 logging.getLogger("transformers").setLevel(logging.ERROR)
 
-model_id = "meta-llama/Meta-Llama-3-8B-Instruct"
+model_id = "Qwen/Qwen2-7B-Instruct"
 tokenizer = AutoTokenizer.from_pretrained(model_id, token='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')
 model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype=torch.bfloat16, attn_implementation="flash_attention_2", token='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').eval()
 tokenizer.pad_token = tokenizer.eos_token
 tokenizer.padding_side = 'left'
 model.generation_config.pad_token_id = model.generation_config.eos_token_id
 
-BATCH_SIZE = 12
+BATCH_SIZE = 8
 
 terminators = [
     tokenizer.eos_token_id,
@@ -48,7 +50,7 @@ def create_prompt(example, title_df, visual_df):
 def map_prompt(example):
     return create_prompt(example, title_df, visual_df)
 
-ui_pair_path = "../../data/MicroLens-50k/Split/user_items_negs.tsv"
+ui_pair_path = f"{DATA_DIR}/Split/user_items_negs.tsv"
 data = []
 with open(ui_pair_path, 'r') as file:
     for line in file:
@@ -62,7 +64,7 @@ with open(ui_pair_path, 'r') as file:
 user_hist_df = pd.DataFrame(data)
 user_hist_dataset = Dataset.from_pandas(user_hist_df)
 
-title_df = pd.read_csv("../../data/MicroLens-50k/MicroLens-50k_titles.csv")
+title_df = pd.read_csv(f"{DATA_DIR}/MicroLens-50k_titles.csv")
 visual_df = pd.read_csv("image_summary.csv")
 
 title_df["item"] = title_df["item"].astype(str)
