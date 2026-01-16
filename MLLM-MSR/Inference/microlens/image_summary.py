@@ -1,6 +1,6 @@
 import torch
 from multiprocess import set_start_method
-from transformers import AutoProcessor, LlavaNextForConditionalGeneration
+from transformers import AutoProcessor, LlavaNextForConditionalGeneration, BitsAndBytesConfig
 from datasets import load_dataset
 from torchvision import transforms
 from PIL import ImageOps
@@ -9,7 +9,7 @@ import os
 import pandas as pd
 
 os.environ['CURL_CA_BUNDLE'] = ''
-os.environ["CUDA_VISIBLE_DEVICES"]="2,3,4,5,6,7"
+os.environ["CUDA_VISIBLE_DEVICES"]="0,1,2,3"  # Use 4 GPUs
 
 # ============ Configuration ============
 # Set your Hugging Face cache directory here, or use environment variable HF_HOME
@@ -19,17 +19,40 @@ CACHE_DIR = os.environ.get('HF_HOME', None)  # Set to None to use default cache
 # Set your MicroLens data directory here
 # The directory should contain image files (jpg, png, etc.)
 DATA_DIR = os.environ.get('MICROLENS_DATA_DIR', '/home/mlsnrs/data/cky/data/MicroLens-50k/MicroLens-50k_covers')
+
+# Memory optimization settings
+USE_4BIT = True  # Enable 4-bit quantization to reduce memory usage
+BATCH_SIZE = 2   # Reduce batch size to save memory
+NUM_PROC = 1     # Use single process with device_map="auto"
 # =======================================
 
 #model_id  = "lmms-lab/llama3-llava-next-8b"
 model_id = "llava-hf/llava-v1.6-mistral-7b-hf"
-model = LlavaNextForConditionalGeneration.from_pretrained(
-    model_id,
-    cache_dir=CACHE_DIR,
-    attn_implementation="flash_attention_2",
-    torch_dtype=torch.float16,
-    # device_map="auto"
-).eval()
+
+# Load model with memory optimization
+if USE_4BIT:
+    # 4-bit quantization config - significantly reduces memory usage
+    bnb_config = BitsAndBytesConfig(
+        load_in_4bit=True,
+        bnb_4bit_quant_type="nf4",
+        bnb_4bit_compute_dtype=torch.float16,
+        bnb_4bit_use_double_quant=True,
+    )
+    model = LlavaNextForConditionalGeneration.from_pretrained(
+        model_id,
+        cache_dir=CACHE_DIR,
+        quantization_config=bnb_config,
+        device_map="auto",  # Automatically distribute across GPUs
+        torch_dtype=torch.float16,
+    ).eval()
+else:
+    model = LlavaNextForConditionalGeneration.from_pretrained(
+        model_id,
+        cache_dir=CACHE_DIR,
+        attn_implementation="flash_attention_2",
+        torch_dtype=torch.float16,
+        device_map="auto",
+    ).eval()
 
 prompt = "[INST] <image>\nPlease describe this image, which is a cover of a video." \
          " Provide a detailed description in one continuous paragraph, including content information and visual features such as colors, objects, text," \
@@ -51,10 +74,10 @@ print(dataset)
 processor = AutoProcessor.from_pretrained(model_id, return_tensors=torch.float16)
 
 
-def gpu_computation(batch, rank):
-    # Move the model on the right GPU if it's not there already
-    device = f"cuda:{(rank or 0) % torch.cuda.device_count()}"
-    model.to(device)
+def gpu_computation(batch, rank=0):
+    # With device_map="auto", model is already distributed across GPUs
+    # Get the device of the first model parameter
+    device = next(model.parameters()).device
 
     batch_images = batch['image']
 
@@ -78,27 +101,36 @@ def gpu_computation(batch, rank):
 
     batch['image'] = padded_images
 
-    # Your big GPU call goes here, for example:
+    # Process inputs
     model_inputs = processor(text=[prompt for i in range(len(batch['image']))], images=batch['image'], return_tensors="pt", padding=True).to(device)
 
-    with torch.no_grad() and autocast():
-        outputs = model.generate(**model_inputs, max_new_tokens=200)
+    with torch.no_grad():
+        with autocast():
+            outputs = model.generate(**model_inputs, max_new_tokens=200)
 
     ans = processor.batch_decode(outputs, skip_special_tokens=True)
     ans = [a.split("[/INST]")[1] for a in ans]
+
+    # Clear cache to free memory
+    torch.cuda.empty_cache()
+
     return {"summary": ans}
 
 #f.close()
 
 if __name__ == "__main__":
-    set_start_method("spawn")
+    if NUM_PROC > 1:
+        set_start_method("spawn")
+
+    print(f"Starting inference with batch_size={BATCH_SIZE}, num_proc={NUM_PROC}, 4bit={USE_4BIT}")
+    print(f"Processing {len(dataset['train'])} images...")
+
     updated_dataset = dataset.map(
         gpu_computation,
         batched=True,
-        batch_size=8,
-        with_rank=True,
-        # num_proc=torch.cuda.device_count(),  # one process per GPU
-        num_proc = 4
+        batch_size=BATCH_SIZE,
+        with_rank=(NUM_PROC > 1),
+        num_proc=NUM_PROC if NUM_PROC > 1 else None,  # None = single process
     )
 
     train_dataset = updated_dataset['train']
