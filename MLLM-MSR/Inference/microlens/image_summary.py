@@ -18,7 +18,7 @@ CACHE_DIR = os.environ.get('HF_HOME', None)  # Set to None to use default cache
 
 # Set your MicroLens data directory here
 # The directory should contain image files (jpg, png, etc.)
-DATA_DIR = os.environ.get('MICROLENS_DATA_DIR', '/home/mlsnrs/data/cky/data/MicroLens-50k/MicroLens-50k_covers')
+DATA_DIR = os.environ.get('MICROLENS_DATA_DIR', '/home/mlsnrs/data/cky/data/MicroLens-50k')
 # =======================================
 
 #model_id  = "lmms-lab/llama3-llava-next-8b"
