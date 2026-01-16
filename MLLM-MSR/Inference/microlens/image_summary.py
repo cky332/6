@@ -15,6 +15,10 @@ os.environ["CUDA_VISIBLE_DEVICES"]="2,3,4,5,6,7"
 # Set your Hugging Face cache directory here, or use environment variable HF_HOME
 # Default: ~/.cache/huggingface
 CACHE_DIR = os.environ.get('HF_HOME', None)  # Set to None to use default cache
+
+# Set your MicroLens data directory here
+# The directory should contain image files (jpg, png, etc.)
+DATA_DIR = os.environ.get('MICROLENS_DATA_DIR', '/home/mlsnrs/data/cky/data/MicroLens-50k/MicroLens-50k_covers')
 # =======================================
 
 #model_id  = "lmms-lab/llama3-llava-next-8b"
@@ -38,8 +42,8 @@ def add_image_file_path(example):
     example['item_id'] = filename
     return example
 
-# img_dir = "../../inference_playground/microlens/microlens_50k_subset" #Change this to the real path of the image folder
-img_dir = "../../data/MicroLens-50k/MicroLens-50k_covers"
+# Use DATA_DIR from configuration
+img_dir = DATA_DIR
 dataset = load_dataset("imagefolder", data_dir=img_dir)
 dataset = dataset.map(lambda x: add_image_file_path(x))
 print(dataset)
