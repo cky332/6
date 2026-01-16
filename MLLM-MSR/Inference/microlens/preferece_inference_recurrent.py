@@ -72,7 +72,7 @@ user_hist_df = pd.DataFrame(data)
 user_hist_dataset = Dataset.from_pandas(user_hist_df)
 
 title_df = pd.read_csv("../../data/microlens/MicroLens-50k_titles.csv")
-visual_df = pd.read_csv("image_summary.csv")
+visual_df = pd.read_csv("../../../image_summary.csv")
 
 title_df["item"] = title_df["item"].astype(str)
 visual_df["item_id"] = visual_df["item_id"].astype(str)
