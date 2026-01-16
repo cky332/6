@@ -11,11 +11,21 @@ import pandas as pd
 os.environ['CURL_CA_BUNDLE'] = ''
 os.environ["CUDA_VISIBLE_DEVICES"]="2,3,4,5,6,7"
 
+# ============ Configuration ============
+# Set your Hugging Face cache directory here, or use environment variable HF_HOME
+# Default: ~/.cache/huggingface
+CACHE_DIR = os.environ.get('HF_HOME', None)  # Set to None to use default cache
+# =======================================
+
 #model_id  = "lmms-lab/llama3-llava-next-8b"
 model_id = "llava-hf/llava-v1.6-mistral-7b-hf"
-model = LlavaNextForConditionalGeneration.from_pretrained(model_id,cache_dir = '/data1/share/.HF_cache/',attn_implementation="flash_attention_2", torch_dtype=torch.float16,
-                                                        #   device_map="auto"
-                                                          ).eval()
+model = LlavaNextForConditionalGeneration.from_pretrained(
+    model_id,
+    cache_dir=CACHE_DIR,
+    attn_implementation="flash_attention_2",
+    torch_dtype=torch.float16,
+    # device_map="auto"
+).eval()
 
 prompt = "[INST] <image>\nPlease describe this image, which is a cover of a video." \
          " Provide a detailed description in one continuous paragraph, including content information and visual features such as colors, objects, text," \
