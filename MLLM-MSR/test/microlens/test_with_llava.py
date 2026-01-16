@@ -12,7 +12,10 @@ import numpy as np
 from sklearn.metrics import roc_auc_score, precision_score, recall_score, f1_score, accuracy_score
 from peft import PeftModel, PeftConfig
 
-
+# ============ Configuration ============
+# Modify these paths according to your environment
+CACHE_DIR = os.environ.get('HF_HOME', None)  # Hugging Face cache, None uses default ~/.cache/huggingface
+# =======================================
 
 os.environ['CURL_CA_BUNDLE'] = ''
 os.environ["CUDA_VISIBLE_DEVICES"] = "2,3,4,5,6,7"
@@ -21,9 +24,7 @@ os.environ["CUDA_VISIBLE_DEVICES"] = "2,3,4,5,6,7"
 default_dtype = torch.get_default_dtype()
 torch.set_default_dtype(torch.float16)
 model_id = "llava-hf/llava-v1.6-mistral-7b-hf"
-#model_id = "/data1/share/LLaVA/llava-v1.6-mistral-7b-hf-lora"
-#model_id = "/data1/share/LLaVA/llava-v1.6-mistral-7b-lora-r32-alpha256_overfit"
-model = LlavaNextForConditionalGeneration.from_pretrained(model_id, cache_dir='/data1/share/.HF_cache/',
+model = LlavaNextForConditionalGeneration.from_pretrained(model_id, cache_dir=CACHE_DIR,
                                                           attn_implementation="flash_attention_2",
                                                           torch_dtype=torch.float16,
                                                           #device_map="auto"

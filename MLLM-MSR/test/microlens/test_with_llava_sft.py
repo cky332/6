@@ -12,19 +12,21 @@ import numpy as np
 from sklearn.metrics import roc_auc_score, precision_score, recall_score, f1_score, accuracy_score
 from peft import PeftModel, PeftConfig
 
-
+# ============ Configuration ============
+# Modify these paths according to your environment
+CACHE_DIR = os.environ.get('HF_HOME', None)  # Hugging Face cache, None uses default ~/.cache/huggingface
+OUTPUT_DIR = os.environ.get('MLLM_OUTPUT_DIR', './output')  # Directory where trained models are saved
+# =======================================
 
 os.environ['CURL_CA_BUNDLE'] = ''
 os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3,4,5,6,7"
 
 base_model_id = "llava-hf/llava-v1.6-mistral-7b-hf"
-#peft_model_id = "/data1/share/LLaVA/llava-v1.6-mistral-7b-hf-lora"
-#peft_model_id = "/data1/share/LLaVA/llava-v1.6-mistral-7b-hf-lora-distributed"
-#peft_model_id = "/data1/share/LLaVA/llava-v1.6-mistral-7b-hf-lora-dist-e12-r16"
-peft_model_id = "/data1/share/LLaVA/llava-v1.6-mistral-7b-hf-lora-dist-e8-r32"
-#peft_model_id = "/data1/share/LLaVA/llava-v1.6-mistral-7b-hf-lora-recurrent-e4-r16"
+# PEFT model path - point to your trained LoRA model directory
+# Example: peft_model_id = os.path.join(OUTPUT_DIR, "llava-v1.6-mistral-7b-hf-lora-dist-e8-r32")
+peft_model_id = os.path.join(OUTPUT_DIR, "llava-v1.6-mistral-7b-hf-lora-recurrent-e4-r16")
 config = PeftConfig.from_pretrained(peft_model_id)
-model = LlavaNextForConditionalGeneration.from_pretrained(base_model_id, cache_dir='/data1/share/.HF_cache/',
+model = LlavaNextForConditionalGeneration.from_pretrained(base_model_id, cache_dir=CACHE_DIR,
                                                           attn_implementation="flash_attention_2",
                                                           torch_dtype=torch.float16,
                                                           #quantization_config=bnb_config

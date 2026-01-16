@@ -1,3 +1,11 @@
+import os
+
+# ============ Configuration ============
+# Modify these paths according to your environment
+CACHE_DIR = os.environ.get('HF_HOME', None)  # Hugging Face cache, None uses default ~/.cache/huggingface
+OUTPUT_DIR = os.environ.get('MLLM_OUTPUT_DIR', './output')  # Directory for saving models and checkpoints
+# =======================================
+
 MAX_LENGTH = 1024
 EPOCH = 4
 LORA_R = 16
@@ -5,7 +13,10 @@ MODEL_ID = "llava-hf/llava-v1.6-mistral-7b-hf"
 REPO_ID = "yeyuyang95/llava-v1.6-mistral-7b-hf-lora"
 WANDB_PROJECT = "LLaVaNeXT"
 WANDB_NAME = "llava-v1.6-mistral-7b-hf-lora"
-SAVE_DIR = f"/data1/share/LLaVA/llava-v1.6-mistral-7b-hf-lora-recurrent-e{EPOCH}-r{LORA_R}"
+SAVE_DIR = os.path.join(OUTPUT_DIR, f"llava-v1.6-mistral-7b-hf-lora-recurrent-e{EPOCH}-r{LORA_R}")
+
+# Create output directory if it doesn't exist
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 from transformers import AutoProcessor
 from transformers import BitsAndBytesConfig, LlavaNextForConditionalGeneration
@@ -52,14 +63,14 @@ if USE_QLORA or USE_LORA:
 
         model = LlavaNextForConditionalGeneration.from_pretrained(
             MODEL_ID,
-            cache_dir='/data1/share/.HF_cache/',
+            cache_dir=CACHE_DIR,
             torch_dtype=torch.float16,
             quantization_config=bnb_config,
         )
     else:
         model = LlavaNextForConditionalGeneration.from_pretrained(
             MODEL_ID,
-            cache_dir='/data1/share/.HF_cache/',
+            cache_dir=CACHE_DIR,
             torch_dtype=torch.float16,
             _attn_implementation="flash_attention_2",
         )
@@ -68,7 +79,7 @@ else:
     # only available on certain devices, see https://github.com/Dao-AILab/flash-attention?tab=readme-ov-file#installation-and-features
     model = LlavaNextForConditionalGeneration.from_pretrained(
         MODEL_ID,
-        cache_dir='/data1/share/.HF_cache/',
+        cache_dir=CACHE_DIR,
         torch_dtype=torch.float16,
         _attn_implementation="flash_attention_2",
     )
@@ -249,7 +260,7 @@ config = {"max_epochs": EPOCH,
           # "seed":2022,
           "num_nodes": 1,
           "warmup_steps": 50,
-          "result_path": "/data1/share/LLaVA",
+          "result_path": OUTPUT_DIR,
           "verbose": True,
 }
 
@@ -295,7 +306,7 @@ class SaveToDiskCallback(Callback):
 early_stop_callback = EarlyStopping(monitor="val_edit_distance", patience=3, verbose=False, mode="min")
 
 checkpoint_callback = ModelCheckpoint(
-    dirpath='/data1/share/LLaVA/',  # 指定保存路径
+    dirpath=OUTPUT_DIR,  # 指定保存路径
     filename='llava-v1.6-mistral-7b-lora-test',  # 指定文件名格式
     save_top_k=1,
     verbose=True,
