@@ -1,15 +1,16 @@
 import torch
-from multiprocess import set_start_method
-from transformers import AutoProcessor, LlavaNextForConditionalGeneration
+from transformers import AutoProcessor, LlavaNextForConditionalGeneration, BitsAndBytesConfig
 from datasets import load_dataset
 from torchvision import transforms
 from PIL import ImageOps
 from torch.cuda.amp import autocast
 import os
 import pandas as pd
+from tqdm import tqdm
+import gc
 
 os.environ['CURL_CA_BUNDLE'] = ''
-os.environ["CUDA_VISIBLE_DEVICES"]="2,3,4,5,6,7"
+os.environ["CUDA_VISIBLE_DEVICES"]="0,1,2,3"  # 使用4张4090
 
 # ============ Configuration ============
 # Set your Hugging Face cache directory here, or use environment variable HF_HOME
@@ -23,12 +24,23 @@ DATA_DIR = os.environ.get('MICROLENS_DATA_DIR', '/home/mlsnrs/data/cky/data/Micr
 
 #model_id  = "lmms-lab/llama3-llava-next-8b"
 model_id = "llava-hf/llava-v1.6-mistral-7b-hf"
+
+# 使用4bit量化大幅减少显存占用
+quantization_config = BitsAndBytesConfig(
+    load_in_4bit=True,
+    bnb_4bit_compute_dtype=torch.float16,
+    bnb_4bit_use_double_quant=True,
+    bnb_4bit_quant_type="nf4"
+)
+
 model = LlavaNextForConditionalGeneration.from_pretrained(
     model_id,
     cache_dir=CACHE_DIR,
     attn_implementation="flash_attention_2",
     torch_dtype=torch.float16,
-    # device_map="auto"
+    quantization_config=quantization_config,  # 启用4bit量化
+    device_map="auto",  # 自动分布到多张GPU
+    low_cpu_mem_usage=True,
 ).eval()
 
 prompt = "[INST] <image>\nPlease describe this image, which is a cover of a video." \
@@ -51,10 +63,9 @@ print(dataset)
 processor = AutoProcessor.from_pretrained(model_id, return_tensors=torch.float16)
 
 
-def gpu_computation(batch, rank):
-    # Move the model on the right GPU if it's not there already
-    device = f"cuda:{(rank or 0) % torch.cuda.device_count()}"
-    model.to(device)
+def gpu_computation(batch):
+    # 模型已经通过device_map="auto"分布到多张GPU，获取模型所在的设备
+    device = model.device
 
     batch_images = batch['image']
 
@@ -78,27 +89,34 @@ def gpu_computation(batch, rank):
 
     batch['image'] = padded_images
 
-    # Your big GPU call goes here, for example:
+    # 处理输入
     model_inputs = processor(text=[prompt for i in range(len(batch['image']))], images=batch['image'], return_tensors="pt", padding=True).to(device)
 
-    with torch.no_grad() and autocast():
-        outputs = model.generate(**model_inputs, max_new_tokens=200)
+    with torch.no_grad():
+        with autocast():
+            outputs = model.generate(**model_inputs, max_new_tokens=200)
 
     ans = processor.batch_decode(outputs, skip_special_tokens=True)
     ans = [a.split("[/INST]")[1] for a in ans]
+
+    # 清理GPU缓存
+    del model_inputs, outputs
+    gc.collect()
+    torch.cuda.empty_cache()
+
     return {"summary": ans}
 
 #f.close()
 
 if __name__ == "__main__":
-    set_start_method("spawn")
+    # 使用单进程处理，模型通过device_map="auto"自动分布到多张GPU
+    # batch_size=2 减少显存占用，如果还是OOM可以改成1
     updated_dataset = dataset.map(
         gpu_computation,
         batched=True,
-        batch_size=8,
-        with_rank=True,
-        # num_proc=torch.cuda.device_count(),  # one process per GPU
-        num_proc = 4
+        batch_size=2,  # 减小batch size以节省显存
+        with_rank=False,  # 不需要rank，因为不使用多进程
+        num_proc=1,  # 单进程，模型已自动分布到多GPU
     )
 
     train_dataset = updated_dataset['train']
