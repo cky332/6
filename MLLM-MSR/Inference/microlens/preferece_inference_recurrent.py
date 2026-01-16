@@ -19,7 +19,7 @@ logging.getLogger("transformers").setLevel(logging.ERROR)
 NUM_GPUS = torch.cuda.device_count()
 print(f"Number of available GPUs: {NUM_GPUS}")
 
-model_id = "meta-llama/Meta-Llama-3-8B-Instruct"
+model_id = "Qwen/Qwen2-7B-Instruct"
 tokenizer = AutoTokenizer.from_pretrained(model_id, token='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')
 model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype=torch.bfloat16, attn_implementation="flash_attention_2", token='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').eval()
 tokenizer.pad_token = tokenizer.eos_token
