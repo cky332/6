@@ -28,10 +28,14 @@ model.generation_config.pad_token_id = model.generation_config.eos_token_id
 
 BATCH_SIZE = 12
 
+# Use Qwen2's proper end-of-text tokens (not Llama 3's <|eot_id|>)
 terminators = [
     tokenizer.eos_token_id,
-    tokenizer.convert_tokens_to_ids("<|eot_id|>")
 ]
+# Add Qwen2's end-of-turn token if it exists
+eot_token_id = tokenizer.convert_tokens_to_ids("<|im_end|>")
+if eot_token_id is not None and eot_token_id != tokenizer.unk_token_id:
+    terminators.append(eot_token_id)
 
 pipelines = {}
 
@@ -140,8 +144,10 @@ def gpu_computation(batch, rank):
         pipelines[rank] = transformers.pipeline(
             "text-generation",
             model=model_id,
+            tokenizer=model_id,
             model_kwargs={"torch_dtype": torch.bfloat16},
             device=device,
+            token='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',
         )
     user, items = batch['user'], batch['items']
     summaries = []
