@@ -7,9 +7,16 @@ os.environ['CURL_CA_BUNDLE'] = ''
 os.environ["CUDA_VISIBLE_DEVICES"] = "2,3,4,5,6,7"
 
 # Get the directory where this script is located
+# Directory structure:
+#   /home/mlsnrs/data/cky/           (parent dir)
+#   ├── 6-main/MLLM-MSR/test/microlens/multi_col_dataset.py  (this script)
+#   └── data/MicroLens-50k/          (data dir)
+#
+# From MLLM-MSR/test/microlens/ go up 4 levels to reach parent dir
 SCRIPT_DIR = Path(__file__).resolve().parent
-# Base path relative to script location
-BASE_PATH = SCRIPT_DIR / ".." / ".."
+PARENT_DIR = SCRIPT_DIR.parent.parent.parent.parent  # microlens->test->MLLM-MSR->6-main->cky
+DATA_PATH = PARENT_DIR / "data" / "MicroLens-50k"
+MLLM_MSR_PATH = SCRIPT_DIR.parent.parent  # For inference output files
 
 
 def get_file_full_paths_and_names(folder_path):
@@ -22,22 +29,22 @@ def get_file_full_paths_and_names(folder_path):
             file_names.append(file_path.stem)  # 使用.stem获取不带扩展名的文件名
     return full_paths, file_names
 
-pair_file_path = BASE_PATH / "data/MicroLens-50k/Split/test_pairs.csv"
+pair_file_path = DATA_PATH / "Split" / "test_pairs.csv"
 df = pd.read_csv(pair_file_path)
 df['item'] = df['item'].astype(str)
 df['user'] = df['user'].astype(str)
 
-user_pref_file_path = BASE_PATH / "inference/Microlens/user_preference_recurrent.csv"
+user_pref_file_path = MLLM_MSR_PATH / "inference" / "Microlens" / "user_preference_recurrent.csv"
 user_pref_df = pd.read_csv(user_pref_file_path, header=None, names=["user", "preference"])
 user_pref_df['user'] = user_pref_df['user'].astype(str)
 
 
-item_title_file_path = BASE_PATH / "data/MicroLens-50k/MicroLens-50k_titles.csv"
+item_title_file_path = DATA_PATH / "MicroLens-50k_titles.csv"
 item_title_df = pd.read_csv(item_title_file_path, header=None, names=["item", "title"])
 item_title_df['item'] = item_title_df['item'].astype(str)
 
 
-folder_path = BASE_PATH / "data/MicroLens-50k/MicroLens-50k_covers"
+folder_path = DATA_PATH / "MicroLens-50k_covers"
 file_paths, file_names = get_file_full_paths_and_names(folder_path)
 image_df = pd.DataFrame({"image": file_paths, "item": file_names})
 image_df['item'] = image_df['item'].astype(str)

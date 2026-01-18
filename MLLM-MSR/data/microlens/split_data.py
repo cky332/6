@@ -12,11 +12,16 @@ random.seed(SEED)
 np.random.seed(SEED)
 
 # Paths
+# Directory structure:
+#   /home/mlsnrs/data/cky/           (parent dir)
+#   ├── 6-main/MLLM-MSR/data/microlens/split_data.py  (this script)
+#   └── data/MicroLens-50k/Split/    (output dir)
+#
+# From MLLM-MSR/data/microlens/ go up 4 levels to reach parent dir
 SCRIPT_DIR = Path(__file__).resolve().parent
+PARENT_DIR = SCRIPT_DIR.parent.parent.parent.parent  # 6-main -> cky (parent of both 6-main and data)
 INPUT_FILE = SCRIPT_DIR / "MicroLens-50k_pairs.csv"
-# Output to the path expected by dataset_create.py and multi_col_dataset.py
-# Which is: MLLM-MSR/data/MicroLens-50k/Split/
-OUTPUT_DIR = SCRIPT_DIR.parent / "MicroLens-50k" / "Split"
+OUTPUT_DIR = PARENT_DIR / "data" / "MicroLens-50k" / "Split"
 
 # Create output directory
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
