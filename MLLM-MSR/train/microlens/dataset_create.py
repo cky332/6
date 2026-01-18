@@ -56,9 +56,31 @@ image_df = pd.DataFrame({"image": file_paths, "item": file_names})
 image_df['item'] = image_df['item'].astype(str)
 
 
+# Debug: Print sample data to understand key formats
+print("=== DEBUG: Data key samples ===")
+print(f"df_train items (first 5): {df_train['item'].head().tolist()}")
+print(f"df_train users (first 5): {df_train['user'].head().tolist()}")
+print(f"image_df items (first 5): {image_df['item'].head().tolist()}")
+print(f"item_title_df items (first 5): {item_title_df['item'].head().tolist()}")
+print(f"user_pref_df users (first 5): {user_pref_df['user'].head().tolist()}")
+print()
+
+# Debug: Check data counts before merge
+print(f"df_train count: {len(df_train)}")
+print(f"image_df count: {len(image_df)}")
+print(f"item_title_df count: {len(item_title_df)}")
+print(f"user_pref_df count: {len(user_pref_df)}")
+print()
+
+# Debug: Step-by-step merge with counts
 df_train = pd.merge(df_train, image_df, on="item", how="inner")
+print(f"After merge with image_df: {len(df_train)}")
+
 df_train = pd.merge(df_train, item_title_df, on="item", how="inner")
+print(f"After merge with item_title_df: {len(df_train)}")
+
 df_train = pd.merge(df_train, user_pref_df, on="user", how="inner")
+print(f"After merge with user_pref_df: {len(df_train)}")
 
 df_val = pd.merge(df_val, image_df, on="item", how="inner")
 df_val = pd.merge(df_val, item_title_df, on="item", how="inner")
