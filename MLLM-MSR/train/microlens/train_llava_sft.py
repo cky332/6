@@ -404,7 +404,13 @@ if USE_QLORA:
         training_strategy = DDPStrategy(find_unused_parameters=True)
     training_precision = "16-mixed"
 else:
-    training_strategy = "deepspeed_stage_2"
+    # Standard LoRA (non-quantized)
+    if _num_visible_gpus <= 1:
+        # Single GPU: use auto strategy (simpler, avoids DeepSpeed issues)
+        training_strategy = "auto"
+    else:
+        # Multi-GPU: use DDP for standard LoRA
+        training_strategy = DDPStrategy(find_unused_parameters=True)
     training_precision = "16-mixed"
 
 trainer = L.Trainer(
