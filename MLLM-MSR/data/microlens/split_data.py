@@ -12,16 +12,17 @@ random.seed(SEED)
 np.random.seed(SEED)
 
 # Paths
-# Directory structure:
-#   /home/mlsnrs/data/cky/           (parent dir)
-#   ├── 6-main/MLLM-MSR/data/microlens/split_data.py  (this script)
-#   └── data/MicroLens-50k/Split/    (output dir)
+# Directory structure (relative to project root):
+#   PROJECT_ROOT/
+#   ├── MLLM-MSR/data/microlens/split_data.py  (this script)
+#   ├── MLLM-MSR/data/microlens/               (source data)
+#   └── data/MicroLens-50k/Split/              (output dir)
 #
-# From MLLM-MSR/data/microlens/ go up 4 levels to reach parent dir
 SCRIPT_DIR = Path(__file__).resolve().parent
-PARENT_DIR = SCRIPT_DIR.parent.parent.parent.parent  # 6-main -> cky (parent of both 6-main and data)
+MLLM_MSR_PATH = SCRIPT_DIR.parent.parent  # microlens -> data -> MLLM-MSR
+PROJECT_ROOT = MLLM_MSR_PATH.parent  # MLLM-MSR -> project root
 INPUT_FILE = SCRIPT_DIR / "MicroLens-50k_pairs.csv"
-OUTPUT_DIR = PARENT_DIR / "data" / "MicroLens-50k" / "Split"
+OUTPUT_DIR = PROJECT_ROOT / "data" / "MicroLens-50k" / "Split"
 
 # Create output directory
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -112,4 +113,8 @@ if titles_src.exists() and not titles_dst.exists():
     print(f"  - Copied MicroLens-50k_titles.csv to {titles_dst}")
 
 print(f"\nDone! You can now run dataset_create.py and multi_col_dataset.py")
-print(f"Note: Make sure MicroLens-50k_covers folder exists at {OUTPUT_DIR.parent / 'MicroLens-50k_covers'}")
+print(f"\nIMPORTANT: Before running dataset_create.py, ensure:")
+print(f"  1. MicroLens-50k_covers folder exists at:")
+print(f"     - {OUTPUT_DIR.parent / 'MicroLens-50k_covers'}")
+print(f"     - OR at: {SCRIPT_DIR / 'MicroLens-50k_covers'}")
+print(f"  2. Run preferece_inference_recurrent.py first to generate user preferences")
