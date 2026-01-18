@@ -8,18 +8,25 @@ os.environ['CURL_CA_BUNDLE'] = ''
 os.environ["CUDA_VISIBLE_DEVICES"] = "2,3,4,5,6,7"
 
 # Get the directory where this script is located
-# Directory structure (relative to project root):
-#   PROJECT_ROOT/
-#   ├── MLLM-MSR/train/microlens/dataset_create.py  (this script)
-#   ├── MLLM-MSR/data/microlens/                    (source data)
-#   └── data/MicroLens-50k/                         (processed data)
+# Directory structure can be one of:
+#   Option 1: data inside project
+#     PROJECT_ROOT/
+#     ├── MLLM-MSR/train/microlens/dataset_create.py
+#     └── data/MicroLens-50k/
+#
+#   Option 2: data alongside project (sibling folders)
+#     PARENT_DIR/
+#     ├── 6-main/MLLM-MSR/train/microlens/dataset_create.py
+#     └── data/MicroLens-50k/
 #
 SCRIPT_DIR = Path(__file__).resolve().parent
 MLLM_MSR_PATH = SCRIPT_DIR.parent.parent  # train -> MLLM-MSR
-PROJECT_ROOT = MLLM_MSR_PATH.parent  # MLLM-MSR -> project root
+PROJECT_ROOT = MLLM_MSR_PATH.parent  # MLLM-MSR -> project root (e.g., 6-main)
+PARENT_DIR = PROJECT_ROOT.parent  # Parent of project root (for sibling data folder)
 
 # Data paths - check multiple possible locations
-DATA_PATH = PROJECT_ROOT / "data" / "MicroLens-50k"
+DATA_PATH = PROJECT_ROOT / "data" / "MicroLens-50k"  # data inside project
+DATA_PATH_SIBLING = PARENT_DIR / "data" / "MicroLens-50k"  # data alongside project
 MICROLENS_DATA_PATH = MLLM_MSR_PATH / "data" / "microlens"
 
 
@@ -47,57 +54,66 @@ def check_required_files():
     """Check if all required files exist and provide helpful error messages."""
     errors = []
 
-    # Check train/val pairs
+    # Check train/val pairs - try both data locations
     train_pair_path = DATA_PATH / "Split" / "train_pairs.csv"
-    val_pair_path = DATA_PATH / "Split" / "val_pairs.csv"
-    if not train_pair_path.exists() or not val_pair_path.exists():
+    train_pair_path_sibling = DATA_PATH_SIBLING / "Split" / "train_pairs.csv"
+    if not train_pair_path.exists() and not train_pair_path_sibling.exists():
         errors.append(
-            f"Train/Val pairs not found at {DATA_PATH / 'Split'}.\n"
+            f"Train/Val pairs not found.\n"
+            f"   Checked: {DATA_PATH / 'Split'}\n"
+            f"   Checked: {DATA_PATH_SIBLING / 'Split'}\n"
             f"   Please run: python MLLM-MSR/data/microlens/split_data.py"
         )
 
     # Check titles file - try multiple locations
-    titles_path = DATA_PATH / "MicroLens-50k_titles.csv"
-    alt_titles_path = MICROLENS_DATA_PATH / "MicroLens-50k_titles.csv"
-    if not titles_path.exists() and not alt_titles_path.exists():
+    titles_paths = [
+        DATA_PATH / "MicroLens-50k_titles.csv",
+        DATA_PATH_SIBLING / "MicroLens-50k_titles.csv",
+        MICROLENS_DATA_PATH / "MicroLens-50k_titles.csv",
+    ]
+    if not any(p.exists() for p in titles_paths):
         errors.append(
             f"Titles file not found.\n"
-            f"   Expected at: {titles_path}\n"
-            f"   Or at: {alt_titles_path}"
+            f"   Checked locations:\n" +
+            "\n".join(f"   - {p}" for p in titles_paths)
         )
 
     # Check covers folder - try multiple locations
     # Images can be in MicroLens-50k_covers subfolder OR directly in MicroLens-50k folder
-    covers_path = DATA_PATH / "MicroLens-50k_covers"
-    alt_covers_path = MICROLENS_DATA_PATH / "MicroLens-50k_covers"
-    direct_path = DATA_PATH  # Images directly in MicroLens-50k folder
-
-    # Check if any location has image files
     def has_images(path):
         if not path.exists():
             return False
         image_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.tiff'}
         return any(f.suffix.lower() in image_extensions for f in path.glob('*') if f.is_file())
 
-    if not has_images(covers_path) and not has_images(alt_covers_path) and not has_images(direct_path):
+    image_locations = [
+        DATA_PATH / "MicroLens-50k_covers",
+        DATA_PATH_SIBLING / "MicroLens-50k_covers",
+        MICROLENS_DATA_PATH / "MicroLens-50k_covers",
+        DATA_PATH,  # Images directly in folder
+        DATA_PATH_SIBLING,  # Images directly in sibling folder
+    ]
+
+    if not any(has_images(p) for p in image_locations):
         errors.append(
             f"Image files not found.\n"
-            f"   Checked locations:\n"
-            f"   - {covers_path}\n"
-            f"   - {alt_covers_path}\n"
-            f"   - {direct_path} (images directly in folder)\n"
-            f"   Please download MicroLens-50k images from:\n"
+            f"   Checked locations:\n" +
+            "\n".join(f"   - {p}" for p in image_locations) +
+            f"\n   Please download MicroLens-50k images from:\n"
             f"   https://github.com/westlake-repl/MicroLens"
         )
 
     # Check user preference file
-    user_pref_path = PROJECT_ROOT / "user_preference_recurrent.csv"
-    alt_user_pref_path = MLLM_MSR_PATH / "user_preference_recurrent.csv"
-    if not user_pref_path.exists() and not alt_user_pref_path.exists():
+    user_pref_paths = [
+        PROJECT_ROOT / "user_preference_recurrent.csv",
+        MLLM_MSR_PATH / "user_preference_recurrent.csv",
+    ]
+    if not any(p.exists() for p in user_pref_paths):
         errors.append(
             f"User preference file not found.\n"
-            f"   Expected at: {user_pref_path}\n"
-            f"   Please run first: python MLLM-MSR/Inference/microlens/preferece_inference_recurrent.py"
+            f"   Checked locations:\n" +
+            "\n".join(f"   - {p}" for p in user_pref_paths) +
+            f"\n   Please run first: python MLLM-MSR/Inference/microlens/preferece_inference_recurrent.py"
         )
 
     if errors:
@@ -115,17 +131,32 @@ def check_required_files():
 # Run file checks
 print("Checking required files...")
 print(f"Project root: {PROJECT_ROOT}")
-print(f"Data path: {DATA_PATH}")
+print(f"Data path (inside project): {DATA_PATH}")
+print(f"Data path (sibling): {DATA_PATH_SIBLING}")
 check_required_files()
 print("All required files found.\n")
 
-# Load train/val pairs
-train_pair_file_path = DATA_PATH / "Split" / "train_pairs.csv"
+# Helper function to find existing file from candidates
+def find_existing_file(*candidates):
+    for path in candidates:
+        if path.exists() and (path.is_file() and path.stat().st_size > 0 or path.is_dir()):
+            return path
+    return candidates[0]  # Fallback
+
+# Load train/val pairs - check both locations
+train_pair_file_path = find_existing_file(
+    DATA_PATH / "Split" / "train_pairs.csv",
+    DATA_PATH_SIBLING / "Split" / "train_pairs.csv"
+)
+print(f"Loading train pairs from: {train_pair_file_path}")
 df_train = pd.read_csv(train_pair_file_path)
 df_train['item'] = df_train['item'].astype(str)
 df_train['user'] = df_train['user'].astype(str)
 
-val_pair_file_path = DATA_PATH / "Split" / "val_pairs.csv"
+val_pair_file_path = find_existing_file(
+    DATA_PATH / "Split" / "val_pairs.csv",
+    DATA_PATH_SIBLING / "Split" / "val_pairs.csv"
+)
 df_val = pd.read_csv(val_pair_file_path)
 df_val['item'] = df_val['item'].astype(str)
 df_val['user'] = df_val['user'].astype(str)
@@ -150,9 +181,12 @@ else:
 user_pref_df['user'] = user_pref_df['user'].astype(str)
 
 # Load item titles - check multiple locations with header detection
-item_title_file_path = DATA_PATH / "MicroLens-50k_titles.csv"
-if not item_title_file_path.exists() or item_title_file_path.stat().st_size == 0:
-    item_title_file_path = MICROLENS_DATA_PATH / "MicroLens-50k_titles.csv"
+item_title_file_path = find_existing_file(
+    DATA_PATH / "MicroLens-50k_titles.csv",
+    DATA_PATH_SIBLING / "MicroLens-50k_titles.csv",
+    MICROLENS_DATA_PATH / "MicroLens-50k_titles.csv"
+)
+print(f"Loading titles from: {item_title_file_path}")
 
 # Check if file has header
 with open(item_title_file_path, 'r') as f:
@@ -173,8 +207,10 @@ def find_image_folder():
     """Find the folder containing image files."""
     candidates = [
         DATA_PATH / "MicroLens-50k_covers",
+        DATA_PATH_SIBLING / "MicroLens-50k_covers",
         MICROLENS_DATA_PATH / "MicroLens-50k_covers",
         DATA_PATH,  # Images directly in MicroLens-50k folder
+        DATA_PATH_SIBLING,  # Images directly in sibling MicroLens-50k folder
     ]
     for path in candidates:
         if path.exists():
