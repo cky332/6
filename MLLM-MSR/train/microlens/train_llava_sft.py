@@ -350,9 +350,9 @@ checkpoint_callback = ModelCheckpoint(
 # Choose strategy based on quantization mode
 # QLoRA (4-bit) is not compatible with DeepSpeed, use DDP instead
 # Use static_graph=True to fix gradient checkpointing + DDP conflict
+# Note: find_unused_parameters and static_graph are mutually exclusive
 if USE_QLORA:
     training_strategy = DDPStrategy(
-        find_unused_parameters=True,
         static_graph=True  # Required for gradient checkpointing with DDP
     )
     training_precision = "16-mixed"
