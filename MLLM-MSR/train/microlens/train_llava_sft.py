@@ -21,7 +21,7 @@ else:
     NUM_GPUS = int(_num_gpus_env)
 # =======================================
 
-MAX_LENGTH = 1024
+MAX_LENGTH = 2048  # Increased to accommodate image tokens (LLaVA uses ~576 tokens per image)
 EPOCH = 4
 LORA_R = 16
 MODEL_ID = "llava-hf/llava-v1.6-mistral-7b-hf"
@@ -164,11 +164,19 @@ def train_collate_fn(examples):
     for example in examples:
         image, prompt_text, ground_truth = example
         images.append(image)
+        # Truncate the text content (not the prompt template) to avoid cutting image tokens
+        # Keep prompt_text and ground_truth shorter if needed
+        max_text_len = 500  # Reserve space for image tokens and template
+        if len(prompt_text) > max_text_len:
+            prompt_text = prompt_text[:max_text_len]
+        if len(ground_truth) > max_text_len:
+            ground_truth = ground_truth[:max_text_len]
         prompt = f"[INST] <image>\n{prompt_text} [\INST] {ground_truth}"
         texts.append(prompt)
     images = resize_image(images)
 
-    batch = processor(text=texts, images=images, padding=True, truncation=True, max_length=MAX_LENGTH, return_tensors="pt")
+    # Disable truncation to preserve image tokens, use padding only
+    batch = processor(text=texts, images=images, padding=True, truncation=False, max_length=MAX_LENGTH, return_tensors="pt")
 
     labels = batch["input_ids"].clone()
     labels[labels == processor.tokenizer.pad_token_id] = -100
@@ -189,6 +197,10 @@ def eval_collate_fn(examples):
     for example in examples:
         image, prompt_text, ground_truth = example
         images.append(image)
+        # Truncate text content to avoid exceeding max length
+        max_text_len = 500  # Reserve space for image tokens and template
+        if len(prompt_text) > max_text_len:
+            prompt_text = prompt_text[:max_text_len]
         prompt = f"[INST] <image>\n{prompt_text} [\INST]"
         texts.append(prompt)
         answers.append(ground_truth)
