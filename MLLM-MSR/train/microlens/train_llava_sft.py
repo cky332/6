@@ -128,11 +128,21 @@ lora_config = LoraConfig(
     init_lora_weights="gaussian",
 )
 
-model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=True)
+# Detect if using single or multi-GPU
+# Gradient checkpointing conflicts with DDP, so only enable for single GPU
+import torch
+_num_visible_gpus = torch.cuda.device_count()
+_use_gradient_checkpointing = (_num_visible_gpus <= 1)  # Only for single GPU
+
+model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=_use_gradient_checkpointing)
 model = get_peft_model(model, lora_config)
 
-# Enable gradient checkpointing for memory efficiency
-model.gradient_checkpointing_enable()
+# Enable gradient checkpointing only for single GPU (conflicts with DDP)
+if _use_gradient_checkpointing:
+    model.gradient_checkpointing_enable()
+    print("Gradient checkpointing ENABLED (single GPU mode)")
+else:
+    print(f"Gradient checkpointing DISABLED (multi-GPU mode with {_num_visible_gpus} GPUs)")
 
 #Create PyTorch dataset
 train_dataset = LlavaDataset2("MicroLens-50k-training-recurrent",  split="train", sort_json_key=False)
@@ -347,14 +357,15 @@ checkpoint_callback = ModelCheckpoint(
 #Train!
 #wandb_logger = WandbLogger(project=WANDB_PROJECT, name=WANDB_NAME)
 
-# Choose strategy based on quantization mode
+# Choose strategy based on quantization mode and GPU count
 # QLoRA (4-bit) is not compatible with DeepSpeed, use DDP instead
-# Use static_graph=True to fix gradient checkpointing + DDP conflict
-# Note: find_unused_parameters and static_graph are mutually exclusive
 if USE_QLORA:
-    training_strategy = DDPStrategy(
-        static_graph=True  # Required for gradient checkpointing with DDP
-    )
+    if _num_visible_gpus <= 1:
+        # Single GPU: no need for distributed strategy
+        training_strategy = "auto"
+    else:
+        # Multi-GPU: use DDP (gradient checkpointing is disabled for multi-GPU)
+        training_strategy = DDPStrategy(find_unused_parameters=True)
     training_precision = "16-mixed"
 else:
     training_strategy = "deepspeed_stage_2"
