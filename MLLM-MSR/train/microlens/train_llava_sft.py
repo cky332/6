@@ -10,6 +10,8 @@ try:
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
         gc.collect()
+        # Enable TensorCore optimization for RTX 3090/4090
+        torch.set_float32_matmul_precision('medium')
         print(f"Cleared GPU cache. Available GPUs: {torch.cuda.device_count()}")
         for i in range(torch.cuda.device_count()):
             free_mem = torch.cuda.get_device_properties(i).total_memory - torch.cuda.memory_reserved(i)
@@ -76,8 +78,17 @@ logging.getLogger("transformers").setLevel(logging.ERROR)
 processor = AutoProcessor.from_pretrained(MODEL_ID)
 processor.tokenizer.padding_side = "right"
 
+# Training mode configuration via environment variable
+# USE_QLORA_ENV: Set to "0" to use standard LoRA (faster, ~20GB VRAM needed)
+#               Set to "1" to use QLoRA (slower but memory efficient, ~12GB VRAM)
+# Default: "1" (QLoRA) for memory safety
 USE_LORA = True
-USE_QLORA = True  # Enable 4-bit quantization to reduce memory usage
+USE_QLORA = os.environ.get('USE_QLORA', '1') == '1'
+
+if USE_QLORA:
+    print("Mode: QLoRA (4-bit quantization) - Memory efficient but slower")
+else:
+    print("Mode: Standard LoRA (FP16) - Faster but uses more memory (~20GB)")
 
 ## Load model
 
@@ -308,7 +319,7 @@ class LlavaModelPLModule(L.LightningModule):
         return optimizer
 
     def train_dataloader(self):
-        return DataLoader(train_dataset, collate_fn=train_collate_fn, batch_size=self.batch_size, shuffle=True, num_workers=4)
+        return DataLoader(train_dataset, collate_fn=train_collate_fn, batch_size=self.batch_size, shuffle=True, num_workers=8, pin_memory=True, persistent_workers=True)
 
     def val_dataloader(self):
         return DataLoader(val_dataset, collate_fn=eval_collate_fn, batch_size=self.batch_size, shuffle=False, num_workers=4)
