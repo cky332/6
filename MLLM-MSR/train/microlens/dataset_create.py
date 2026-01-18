@@ -26,7 +26,7 @@ def get_file_full_paths_and_names(folder_path):
     for file_path in folder_path.glob('*'):
         if file_path.is_file():
             full_paths.append(str(file_path.absolute()))
-            file_names.append(file_path.stem)  # 使用.stem获取不带扩展名的文件名
+            file_names.append(file_path.stem)
     return full_paths, file_names
 
 train_pair_file_path = DATA_PATH / "Split" / "train_pairs.csv"
@@ -40,7 +40,7 @@ df_val['item'] = df_val['item'].astype(str)
 df_val['user'] = df_val['user'].astype(str)
 
 
-user_pref_file_path = MLLM_MSR_PATH / "inference" / "Microlens" / "user_preference_recurrent.csv"
+user_pref_file_path = "/home/mlsnrs/data/cky/6-main/user_preference_recurrent.csv"
 user_pref_df = pd.read_csv(user_pref_file_path, header=None, names=["user", "preference"])
 user_pref_df['user'] = user_pref_df['user'].astype(str)
 
@@ -67,10 +67,6 @@ df_val = pd.merge(df_val, user_pref_df, on="user")
 prompt_text = "Based on the previous interaction history, the user's preference can be summarized as: {}" \
               "Please predict whether this user would interact with the video at the next opportunity. The video's title is'{}', and the given image is this video's cover? " \
               "Please only response 'yes' or 'no' based on your judgement, do not include any other content including words, space, and punctuations in your response."
-
-#prompt_text = "[INST] As a vision-llm, your task involves analyzing a video's cover image and title, alongside a summary of a user's preferences based on their interaction history. Respond with 'yes' or 'no' to indicate whether the user will interact with the video at their next opportunity. Please limit your response to only 'yes' or 'no', without including any additional content, words, or punctuation.\n" \
-#              "<image>\nUser's summarized preferences based on past interactions: {}\n" \
-#              "Will the user interact with the video titled '{}' and represented by the above given cover image at the next opportunity? [/INST]"
 
 
 df_train['prompt'] = df_train.apply(lambda x: prompt_text.format(x['preference'], x['title']), axis=1)
