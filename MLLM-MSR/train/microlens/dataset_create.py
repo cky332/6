@@ -23,12 +23,21 @@ DATA_PATH = PROJECT_ROOT / "data" / "MicroLens-50k"
 MICROLENS_DATA_PATH = MLLM_MSR_PATH / "data" / "microlens"
 
 
-def get_file_full_paths_and_names(folder_path):
+def get_file_full_paths_and_names(folder_path, image_extensions=None):
+    """Get image file paths and names from a folder.
+
+    Args:
+        folder_path: Path to the folder containing images
+        image_extensions: Set of valid image extensions (default: common image formats)
+    """
+    if image_extensions is None:
+        image_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.tiff'}
+
     folder_path = Path(folder_path)
     full_paths = []
     file_names = []
     for file_path in folder_path.glob('*'):
-        if file_path.is_file():
+        if file_path.is_file() and file_path.suffix.lower() in image_extensions:
             full_paths.append(str(file_path.absolute()))
             file_names.append(file_path.stem)
     return full_paths, file_names
@@ -58,13 +67,26 @@ def check_required_files():
         )
 
     # Check covers folder - try multiple locations
+    # Images can be in MicroLens-50k_covers subfolder OR directly in MicroLens-50k folder
     covers_path = DATA_PATH / "MicroLens-50k_covers"
     alt_covers_path = MICROLENS_DATA_PATH / "MicroLens-50k_covers"
-    if not covers_path.exists() and not alt_covers_path.exists():
+    direct_path = DATA_PATH  # Images directly in MicroLens-50k folder
+
+    # Check if any location has image files
+    def has_images(path):
+        if not path.exists():
+            return False
+        image_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.tiff'}
+        return any(f.suffix.lower() in image_extensions for f in path.glob('*') if f.is_file())
+
+    if not has_images(covers_path) and not has_images(alt_covers_path) and not has_images(direct_path):
         errors.append(
-            f"Image covers folder not found.\n"
-            f"   Expected at: {covers_path}\n"
-            f"   Please download MicroLens-50k_covers from:\n"
+            f"Image files not found.\n"
+            f"   Checked locations:\n"
+            f"   - {covers_path}\n"
+            f"   - {alt_covers_path}\n"
+            f"   - {direct_path} (images directly in folder)\n"
+            f"   Please download MicroLens-50k images from:\n"
             f"   https://github.com/westlake-repl/MicroLens"
         )
 
@@ -144,9 +166,26 @@ else:
 item_title_df['item'] = item_title_df['item'].astype(str)
 
 # Load image covers - check multiple locations
-folder_path = DATA_PATH / "MicroLens-50k_covers"
-if not folder_path.exists():
-    folder_path = MICROLENS_DATA_PATH / "MicroLens-50k_covers"
+# Priority: MicroLens-50k_covers subfolder > direct in MicroLens-50k folder
+image_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.tiff'}
+
+def find_image_folder():
+    """Find the folder containing image files."""
+    candidates = [
+        DATA_PATH / "MicroLens-50k_covers",
+        MICROLENS_DATA_PATH / "MicroLens-50k_covers",
+        DATA_PATH,  # Images directly in MicroLens-50k folder
+    ]
+    for path in candidates:
+        if path.exists():
+            # Check if this folder has image files
+            has_imgs = any(f.suffix.lower() in image_extensions for f in path.glob('*') if f.is_file())
+            if has_imgs:
+                return path
+    return candidates[0]  # Fallback
+
+folder_path = find_image_folder()
+print(f"Loading images from: {folder_path}")
 
 file_paths, file_names = get_file_full_paths_and_names(folder_path)
 image_df = pd.DataFrame({"image": file_paths, "item": file_names})
