@@ -43,6 +43,7 @@ from peft import LoraConfig, prepare_model_for_kbit_training, get_peft_model
 from load_llava_dataset import LlavaDataset, LlavaDataset2
 from PIL import ImageOps
 from lightning.pytorch.loggers import WandbLogger
+from lightning.pytorch.strategies import DDPStrategy
 import lightning as L
 from torch.utils.data import DataLoader
 import re
@@ -348,8 +349,12 @@ checkpoint_callback = ModelCheckpoint(
 
 # Choose strategy based on quantization mode
 # QLoRA (4-bit) is not compatible with DeepSpeed, use DDP instead
+# Use static_graph=True to fix gradient checkpointing + DDP conflict
 if USE_QLORA:
-    training_strategy = "ddp_find_unused_parameters_true"
+    training_strategy = DDPStrategy(
+        find_unused_parameters=True,
+        static_graph=True  # Required for gradient checkpointing with DDP
+    )
     training_precision = "16-mixed"
 else:
     training_strategy = "deepspeed_stage_2"
