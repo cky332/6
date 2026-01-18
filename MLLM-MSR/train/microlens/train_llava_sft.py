@@ -1,7 +1,21 @@
 import os
+import gc
 
 # Memory optimization settings
-os.environ.setdefault('PYTORCH_CUDA_ALLOC_CONF', 'expandable_segments:True')
+os.environ.setdefault('PYTORCH_CUDA_ALLOC_CONF', 'expandable_segments:True,max_split_size_mb:128')
+
+# Clear any existing GPU memory before starting
+try:
+    import torch
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        gc.collect()
+        print(f"Cleared GPU cache. Available GPUs: {torch.cuda.device_count()}")
+        for i in range(torch.cuda.device_count()):
+            free_mem = torch.cuda.get_device_properties(i).total_memory - torch.cuda.memory_reserved(i)
+            print(f"  GPU {i}: {free_mem / 1024**3:.2f} GiB free")
+except:
+    pass
 
 # ============ Configuration ============
 # Modify these paths according to your environment
@@ -129,10 +143,18 @@ lora_config = LoraConfig(
 )
 
 # Detect if using single or multi-GPU
-# Gradient checkpointing conflicts with DDP, so only enable for single GPU
+# Gradient checkpointing can conflict with DDP, but for memory-constrained setups
+# you can force it with FORCE_GRADIENT_CHECKPOINTING=1 (may cause DDP issues)
 import torch
 _num_visible_gpus = torch.cuda.device_count()
-_use_gradient_checkpointing = (_num_visible_gpus <= 1)  # Only for single GPU
+_force_grad_ckpt = os.environ.get('FORCE_GRADIENT_CHECKPOINTING', '0') == '1'
+
+if _force_grad_ckpt:
+    _use_gradient_checkpointing = True
+    print("WARNING: Gradient checkpointing FORCED on multi-GPU. May cause DDP issues.")
+    print("         If you see DDP errors, use single GPU instead.")
+else:
+    _use_gradient_checkpointing = (_num_visible_gpus <= 1)  # Only for single GPU by default
 
 model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=_use_gradient_checkpointing)
 model = get_peft_model(model, lora_config)
@@ -360,9 +382,12 @@ checkpoint_callback = ModelCheckpoint(
 # Choose strategy based on quantization mode and GPU count
 # QLoRA (4-bit) is not compatible with DeepSpeed, use DDP instead
 if USE_QLORA:
-    if _num_visible_gpus <= 1:
-        # Single GPU: no need for distributed strategy
+    if _num_visible_gpus <= 1 or _force_grad_ckpt:
+        # Single GPU or forced gradient checkpointing: use auto strategy
         training_strategy = "auto"
+        if _num_visible_gpus > 1 and _force_grad_ckpt:
+            print("WARNING: Using 'auto' strategy with gradient checkpointing on multi-GPU.")
+            print("         This will effectively use single GPU. For true multi-GPU, don't force gradient checkpointing.")
     else:
         # Multi-GPU: use DDP (gradient checkpointing is disabled for multi-GPU)
         training_strategy = DDPStrategy(find_unused_parameters=True)
