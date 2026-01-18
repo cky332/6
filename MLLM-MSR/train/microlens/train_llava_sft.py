@@ -59,7 +59,7 @@ from peft import LoraConfig, prepare_model_for_kbit_training, get_peft_model
 from load_llava_dataset import LlavaDataset, LlavaDataset2
 from PIL import ImageOps
 from lightning.pytorch.loggers import WandbLogger
-from lightning.pytorch.strategies import DDPStrategy
+from lightning.pytorch.strategies import DDPStrategy, FSDPStrategy
 import lightning as L
 from torch.utils.data import DataLoader
 import re
@@ -391,27 +391,42 @@ checkpoint_callback = ModelCheckpoint(
 #wandb_logger = WandbLogger(project=WANDB_PROJECT, name=WANDB_NAME)
 
 # Choose strategy based on quantization mode and GPU count
-# QLoRA (4-bit) is not compatible with DeepSpeed, use DDP instead
-if USE_QLORA:
-    if _num_visible_gpus <= 1 or _force_grad_ckpt:
-        # Single GPU or forced gradient checkpointing: use auto strategy
-        training_strategy = "auto"
-        if _num_visible_gpus > 1 and _force_grad_ckpt:
-            print("WARNING: Using 'auto' strategy with gradient checkpointing on multi-GPU.")
-            print("         This will effectively use single GPU. For true multi-GPU, don't force gradient checkpointing.")
-    else:
-        # Multi-GPU: use DDP (gradient checkpointing is disabled for multi-GPU)
-        training_strategy = DDPStrategy(find_unused_parameters=True)
-    training_precision = "16-mixed"
+# Strategy options:
+#   - "auto": Single GPU, simplest
+#   - DDP: Multi-GPU, replicates model (high memory per GPU)
+#   - FSDP: Multi-GPU, shards model (lower memory per GPU)
+#
+# Set USE_FSDP=1 to enable FSDP for multi-GPU (recommended for memory efficiency)
+_use_fsdp = os.environ.get('USE_FSDP', '0') == '1'
+
+if _num_visible_gpus <= 1:
+    # Single GPU: use auto strategy
+    training_strategy = "auto"
+    print("Strategy: auto (single GPU)")
+elif _use_fsdp and not USE_QLORA:
+    # Multi-GPU with FSDP (only for standard LoRA, not QLoRA)
+    # FSDP shards the model across GPUs, reducing per-GPU memory
+    from torch.distributed.fsdp.wrap import transformer_auto_wrap_policy
+    from transformers.models.mistral.modeling_mistral import MistralDecoderLayer
+
+    training_strategy = FSDPStrategy(
+        auto_wrap_policy={MistralDecoderLayer},
+        sharding_strategy="FULL_SHARD",  # Shard parameters, gradients, and optimizer states
+        cpu_offload=False,
+        activation_checkpointing_policy={MistralDecoderLayer},  # Enable activation checkpointing
+    )
+    print(f"Strategy: FSDP (model sharding across {_num_visible_gpus} GPUs)")
+    print("  - Model weights are SHARDED (not replicated)")
+    print("  - Activation checkpointing ENABLED")
 else:
-    # Standard LoRA (non-quantized)
-    if _num_visible_gpus <= 1:
-        # Single GPU: use auto strategy (simpler, avoids DeepSpeed issues)
-        training_strategy = "auto"
-    else:
-        # Multi-GPU: use DDP for standard LoRA
-        training_strategy = DDPStrategy(find_unused_parameters=True)
-    training_precision = "16-mixed"
+    # Multi-GPU with DDP (model replicated on each GPU)
+    if USE_QLORA:
+        print("WARNING: QLoRA + multi-GPU uses DDP (model replicated). May cause OOM!")
+        print("         Recommend: Single GPU for QLoRA, or USE_FSDP=1 USE_QLORA=0 for multi-GPU")
+    training_strategy = DDPStrategy(find_unused_parameters=True)
+    print(f"Strategy: DDP (model replicated on {_num_visible_gpus} GPUs)")
+
+training_precision = "16-mixed"
 
 trainer = L.Trainer(
         accelerator="gpu",
