@@ -1,5 +1,8 @@
 import os
 
+# Memory optimization settings
+os.environ.setdefault('PYTORCH_CUDA_ALLOC_CONF', 'expandable_segments:True')
+
 # ============ Configuration ============
 # Modify these paths according to your environment
 CACHE_DIR = os.environ.get('HF_HOME', None)  # Hugging Face cache, None uses default ~/.cache/huggingface
@@ -59,7 +62,7 @@ processor = AutoProcessor.from_pretrained(MODEL_ID)
 processor.tokenizer.padding_side = "right"
 
 USE_LORA = True
-USE_QLORA = False
+USE_QLORA = True  # Enable 4-bit quantization to reduce memory usage
 
 ## Load model
 
@@ -124,8 +127,11 @@ lora_config = LoraConfig(
     init_lora_weights="gaussian",
 )
 
-model = prepare_model_for_kbit_training(model)
+model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=True)
 model = get_peft_model(model, lora_config)
+
+# Enable gradient checkpointing for memory efficiency
+model.gradient_checkpointing_enable()
 
 #Create PyTorch dataset
 train_dataset = LlavaDataset2("MicroLens-50k-training-recurrent",  split="train", sort_json_key=False)
@@ -328,15 +334,24 @@ checkpoint_callback = ModelCheckpoint(
 #Train!
 #wandb_logger = WandbLogger(project=WANDB_PROJECT, name=WANDB_NAME)
 
+# Choose strategy based on quantization mode
+# QLoRA (4-bit) is not compatible with DeepSpeed, use DDP instead
+if USE_QLORA:
+    training_strategy = "ddp_find_unused_parameters_true"
+    training_precision = "16-mixed"
+else:
+    training_strategy = "deepspeed_stage_2"
+    training_precision = "16-mixed"
+
 trainer = L.Trainer(
         accelerator="gpu",
         devices=NUM_GPUS,
-        strategy='deepspeed_stage_2',
+        strategy=training_strategy,
         max_epochs=config.get("max_epochs"),
         accumulate_grad_batches=config.get("accumulate_grad_batches"),
         check_val_every_n_epoch=config.get("check_val_every_n_epoch"),
         gradient_clip_val=config.get("gradient_clip_val"),
-        precision="16-mixed",
+        precision=training_precision,
         log_every_n_steps=10,
         limit_val_batches=5,
         num_sanity_val_steps=0,
