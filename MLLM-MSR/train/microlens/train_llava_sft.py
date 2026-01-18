@@ -4,6 +4,18 @@ import os
 # Modify these paths according to your environment
 CACHE_DIR = os.environ.get('HF_HOME', None)  # Hugging Face cache, None uses default ~/.cache/huggingface
 OUTPUT_DIR = os.environ.get('MLLM_OUTPUT_DIR', './output')  # Directory for saving models and checkpoints
+
+# GPU Configuration
+# Set NUM_GPUS environment variable to specify number of GPUs, or use "auto" to detect automatically
+# Examples:
+#   NUM_GPUS=2 python train_llava_sft.py  # Use exactly 2 GPUs
+#   NUM_GPUS=auto python train_llava_sft.py  # Auto-detect available GPUs (default)
+#   CUDA_VISIBLE_DEVICES=5,7 python train_llava_sft.py  # Will auto-detect 2 GPUs
+_num_gpus_env = os.environ.get('NUM_GPUS', 'auto')
+if _num_gpus_env.lower() == 'auto':
+    NUM_GPUS = "auto"
+else:
+    NUM_GPUS = int(_num_gpus_env)
 # =======================================
 
 MAX_LENGTH = 1024
@@ -318,7 +330,7 @@ checkpoint_callback = ModelCheckpoint(
 
 trainer = L.Trainer(
         accelerator="gpu",
-        devices=6,
+        devices=NUM_GPUS,
         strategy='deepspeed_stage_2',
         max_epochs=config.get("max_epochs"),
         accumulate_grad_batches=config.get("accumulate_grad_batches"),
