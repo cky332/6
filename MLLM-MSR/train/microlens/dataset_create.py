@@ -56,13 +56,13 @@ image_df = pd.DataFrame({"image": file_paths, "item": file_names})
 image_df['item'] = image_df['item'].astype(str)
 
 
-df_train = pd.merge(df_train, image_df, on="item")
-df_train = pd.merge(df_train, item_title_df, on="item")
-df_train = pd.merge(df_train, user_pref_df, on="user")
+df_train = pd.merge(df_train, image_df, on="item", how="inner")
+df_train = pd.merge(df_train, item_title_df, on="item", how="inner")
+df_train = pd.merge(df_train, user_pref_df, on="user", how="inner")
 
-df_val = pd.merge(df_val, image_df, on="item")
-df_val = pd.merge(df_val, item_title_df, on="item")
-df_val = pd.merge(df_val, user_pref_df, on="user")
+df_val = pd.merge(df_val, image_df, on="item", how="inner")
+df_val = pd.merge(df_val, item_title_df, on="item", how="inner")
+df_val = pd.merge(df_val, user_pref_df, on="user", how="inner")
 
 prompt_text = "Based on the previous interaction history, the user's preference can be summarized as: {}" \
               "Please predict whether this user would interact with the video at the next opportunity. The video's title is'{}', and the given image is this video's cover? " \
@@ -76,6 +76,13 @@ df_train = df_train[['prompt', 'image', 'ground_truth']]
 df_val['prompt'] = df_val.apply(lambda x: prompt_text.format(x['preference'], x['title']), axis=1)
 df_val['ground_truth'] = df_val.apply(lambda x: 'Yes' if x['label'] == 1 else 'No', axis=1)
 df_val = df_val[['prompt', 'image', 'ground_truth']]
+
+# Remove any rows with missing image paths
+df_train = df_train.dropna(subset=['image'])
+df_val = df_val.dropna(subset=['image'])
+
+print(f"Train samples after merge: {len(df_train)}")
+print(f"Val samples after merge: {len(df_val)}")
 
 train_dataset = Dataset.from_pandas(df_train)
 train_dataset = train_dataset.cast_column("image", Image())
