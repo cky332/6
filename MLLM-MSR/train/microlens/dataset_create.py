@@ -165,6 +165,7 @@ df_val['user'] = df_val['user'].astype(str)
 user_pref_file_path = PROJECT_ROOT / "user_preference_recurrent.csv"
 if not user_pref_file_path.exists():
     user_pref_file_path = MLLM_MSR_PATH / "user_preference_recurrent.csv"
+print(f"Loading user preferences from: {user_pref_file_path}")
 
 # Check if file has header by reading first line
 with open(user_pref_file_path, 'r') as f:
@@ -173,12 +174,20 @@ has_header = first_line.startswith('user') or ',' in first_line and not first_li
 
 if has_header:
     user_pref_df = pd.read_csv(user_pref_file_path)
-    # Rename columns if needed
+    print(f"User pref columns (original): {user_pref_df.columns.tolist()}")
+    # Rename first column to 'user' if needed
     if 'user_id' in user_pref_df.columns:
         user_pref_df = user_pref_df.rename(columns={'user_id': 'user'})
+    elif user_pref_df.columns[0] != 'user':
+        user_pref_df = user_pref_df.rename(columns={user_pref_df.columns[0]: 'user'})
+    # Rename second column to 'preference' if needed
+    if len(user_pref_df.columns) >= 2 and 'preference' not in user_pref_df.columns:
+        second_col = user_pref_df.columns[1]
+        user_pref_df = user_pref_df.rename(columns={second_col: 'preference'})
 else:
     user_pref_df = pd.read_csv(user_pref_file_path, header=None, names=["user", "preference"])
 user_pref_df['user'] = user_pref_df['user'].astype(str)
+print(f"User pref columns (final): {user_pref_df.columns.tolist()}")
 
 # Load item titles - check multiple locations with header detection
 item_title_file_path = find_existing_file(
