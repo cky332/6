@@ -407,15 +407,17 @@ elif _use_fsdp and not USE_QLORA:
     # Multi-GPU with FSDP (only for standard LoRA, not QLoRA)
     # FSDP shards the model across GPUs, reducing per-GPU memory
     from transformers.models.mistral.modeling_mistral import MistralDecoderLayer
+    from torch.distributed.fsdp import CPUOffload
 
     training_strategy = FSDPStrategy(
         auto_wrap_policy={MistralDecoderLayer},
         sharding_strategy="FULL_SHARD",  # Shard parameters, gradients, and optimizer states
-        cpu_offload=False,
-        # Note: activation_checkpointing disabled due to variable sequence length issues
+        cpu_offload=CPUOffload(offload_params=True),  # Offload params to CPU to save GPU memory
+        use_orig_params=True,  # Required for LoRA compatibility
     )
     print(f"Strategy: FSDP (model sharding across {_num_visible_gpus} GPUs)")
     print("  - Model weights are SHARDED (not replicated)")
+    print("  - CPU offload ENABLED (slower but saves GPU memory)")
 else:
     # Multi-GPU with DDP (model replicated on each GPU)
     if USE_QLORA:
