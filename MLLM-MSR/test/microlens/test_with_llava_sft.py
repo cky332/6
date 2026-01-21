@@ -71,6 +71,23 @@ def gpu_computation(batch):
 
     batch_images = batch['image']
 
+    # Ensure images are PIL Image objects (datasets may store them in different formats)
+    from PIL import Image
+    import io
+    processed_images = []
+    for img in batch_images:
+        if isinstance(img, Image.Image):
+            processed_images.append(img)
+        elif isinstance(img, dict) and 'bytes' in img:
+            # Image stored as bytes in dataset
+            processed_images.append(Image.open(io.BytesIO(img['bytes'])))
+        elif isinstance(img, bytes):
+            processed_images.append(Image.open(io.BytesIO(img)))
+        else:
+            # Try to use as-is
+            processed_images.append(img)
+    batch_images = processed_images
+
     max_width = max(img.width for img in batch_images)
     max_height = max(img.height for img in batch_images)
 
@@ -92,7 +109,7 @@ def gpu_computation(batch):
     batch['image'] = padded_images
 
     batch_size = len(batch['image'])
-    model_inputs = processor(batch['prompt'], batch['image'], return_tensors="pt", padding=True).to(device)
+    model_inputs = processor(text=batch['prompt'], images=batch['image'], return_tensors="pt", padding=True).to(device)
 
     with torch.no_grad() and autocast():
         outputs = model.generate(**model_inputs, max_new_tokens=30, return_dict_in_generate=True, output_scores=True)
