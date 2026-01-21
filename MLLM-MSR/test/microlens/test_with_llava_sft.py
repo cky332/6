@@ -28,7 +28,7 @@ peft_model_id = os.path.join(OUTPUT_DIR, "llava-v1.6-mistral-7b-hf-lora-recurren
 config = PeftConfig.from_pretrained(peft_model_id)
 model = LlavaNextForConditionalGeneration.from_pretrained(base_model_id, cache_dir=CACHE_DIR,
                                                           attn_implementation="flash_attention_2",
-                                                          torch_dtype=torch.float16,
+                                                          dtype=torch.float16,
                                                           #quantization_config=bnb_config
                                                           #device_map="auto"
                                                           )
@@ -46,7 +46,7 @@ print(f"PEFT model loaded")
 #print(f"Running merge_and_unload")
 #model = model.merge_and_unload()
 
-dataset = load_from_disk("MicroLens-50k-test")
+dataset = load_from_disk("MicroLens-50k-test-recurrent")
 dataset = dataset.select(range(2100))
 print(dataset)
 

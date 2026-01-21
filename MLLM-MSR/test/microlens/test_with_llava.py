@@ -26,14 +26,14 @@ torch.set_default_dtype(torch.float16)
 model_id = "llava-hf/llava-v1.6-mistral-7b-hf"
 model = LlavaNextForConditionalGeneration.from_pretrained(model_id, cache_dir=CACHE_DIR,
                                                           attn_implementation="flash_attention_2",
-                                                          torch_dtype=torch.float16,
+                                                          dtype=torch.float16,
                                                           #device_map="auto"
                                                           ).eval()
 torch.set_default_dtype(default_dtype)
 model.tie_weights()
 
 
-dataset = load_from_disk("MicroLens-50k-test")
+dataset = load_from_disk("MicroLens-50k-test-recurrent")
 dataset = dataset.select(range(2100))
 print(dataset)
 

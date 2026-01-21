@@ -156,7 +156,7 @@ def worker_process(rank, num_gpus, dataset_indices, return_dict):
         model_id,
         cache_dir=CACHE_DIR,
         attn_implementation="flash_attention_2",
-        torch_dtype=torch.float16,
+        dtype=torch.float16,
         quantization_config=quantization_config,
         device_map={"": device},  # 指定加载到当前GPU
         low_cpu_mem_usage=True,
