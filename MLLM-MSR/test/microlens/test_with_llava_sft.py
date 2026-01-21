@@ -16,6 +16,7 @@ from peft import PeftModel, PeftConfig
 # Modify these paths according to your environment
 CACHE_DIR = os.environ.get('HF_HOME', None)  # Hugging Face cache, None uses default ~/.cache/huggingface
 OUTPUT_DIR = os.environ.get('MLLM_OUTPUT_DIR', './output')  # Directory where trained models are saved
+TEST_DATASET_PATH = os.environ.get('MLLM_TEST_DATASET', 'MicroLens-50k-test-recurrent')  # Test dataset path
 # =======================================
 
 os.environ['CURL_CA_BUNDLE'] = ''
@@ -28,7 +29,7 @@ peft_model_id = os.path.join(OUTPUT_DIR, "llava-v1.6-mistral-7b-hf-lora-recurren
 config = PeftConfig.from_pretrained(peft_model_id)
 model = LlavaNextForConditionalGeneration.from_pretrained(base_model_id, cache_dir=CACHE_DIR,
                                                           attn_implementation="flash_attention_2",
-                                                          torch_dtype=torch.float16,
+                                                          dtype=torch.float16,
                                                           #quantization_config=bnb_config
                                                           #device_map="auto"
                                                           )
@@ -46,7 +47,9 @@ print(f"PEFT model loaded")
 #print(f"Running merge_and_unload")
 #model = model.merge_and_unload()
 
-dataset = load_from_disk("MicroLens-50k-test")
+print(f"Loading test dataset from: {TEST_DATASET_PATH}")
+print(f"Loading PEFT model from: {peft_model_id}")
+dataset = load_from_disk(TEST_DATASET_PATH)
 dataset = dataset.select(range(2100))
 print(dataset)
 

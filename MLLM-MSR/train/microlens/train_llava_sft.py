@@ -105,14 +105,14 @@ if USE_QLORA or USE_LORA:
         model = LlavaNextForConditionalGeneration.from_pretrained(
             MODEL_ID,
             cache_dir=CACHE_DIR,
-            torch_dtype=torch.float16,
+            dtype=torch.float16,
             quantization_config=bnb_config,
         )
     else:
         model = LlavaNextForConditionalGeneration.from_pretrained(
             MODEL_ID,
             cache_dir=CACHE_DIR,
-            torch_dtype=torch.float16,
+            dtype=torch.float16,
             _attn_implementation="flash_attention_2",
         )
 else:
@@ -121,7 +121,7 @@ else:
     model = LlavaNextForConditionalGeneration.from_pretrained(
         MODEL_ID,
         cache_dir=CACHE_DIR,
-        torch_dtype=torch.float16,
+        dtype=torch.float16,
         _attn_implementation="flash_attention_2",
     )
 
