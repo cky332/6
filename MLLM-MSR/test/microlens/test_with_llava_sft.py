@@ -1,5 +1,4 @@
 import torch
-from multiprocess import set_start_method
 from transformers import LlavaNextProcessor, LlavaNextForConditionalGeneration, BitsAndBytesConfig
 from datasets import load_dataset, load_from_disk
 from torchvision import transforms
@@ -43,7 +42,11 @@ processor.tokenizer.pad_token = processor.tokenizer.eos_token
 
 model = PeftModel.from_pretrained(model, peft_model_id).eval()
 model.tie_weights()
-print(f"PEFT model loaded")
+
+# Move model to GPU once in the main process to avoid OOM with multiprocessing
+device = "cuda:0"
+model = model.to(device)
+print(f"PEFT model loaded and moved to {device}")
 #print(f"Running merge_and_unload")
 #model = model.merge_and_unload()
 
@@ -61,9 +64,9 @@ processor.tokenizer.add_tokens(
 Yes_id, No_id = processor.tokenizer.convert_tokens_to_ids('Yes'), processor.tokenizer.convert_tokens_to_ids('No')
 yes_id, no_id = processor.tokenizer.convert_tokens_to_ids('yes'), processor.tokenizer.convert_tokens_to_ids('no')
 
-def gpu_computation(batch, rank):
-    device = f"cuda:{(rank or 0) % torch.cuda.device_count()}"
-    model.to(device)
+def gpu_computation(batch):
+    # Model is already on GPU, no need to move it again
+    # This avoids OOM errors when using multiprocessing on a single GPU
     yes_logits_batch, no_logits_batch = [], []
 
     batch_images = batch['image']
@@ -154,15 +157,15 @@ def ndcg_at_k(y_true, y_prob, k):
     return np.mean(ndcg_scores)
 
 if __name__ == "__main__":
-    set_start_method("spawn")
     torch.cuda.empty_cache()
+    # Use single process to avoid OOM when only one GPU is available
+    # For multi-GPU setups, you can set num_proc=torch.cuda.device_count() and with_rank=True
     updated_dataset = dataset.map(
         gpu_computation,
         batched=True,
         batch_size=6,
-        with_rank=True,
-        # num_proc=torch.cuda.device_count(),  # one process per GPU
-        num_proc=6  # one process per GPU
+        # num_proc=torch.cuda.device_count(),  # Uncomment for multi-GPU
+        # with_rank=True,                       # Uncomment for multi-GPU
     )
     updated_dataset = updated_dataset.sort("user")
     yes_logits = torch.tensor(updated_dataset['yes_logits'])
