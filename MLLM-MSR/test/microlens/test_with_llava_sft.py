@@ -20,7 +20,7 @@ TEST_DATASET_PATH = os.environ.get('MLLM_TEST_DATASET', 'MicroLens-50k-test-recu
 # =======================================
 
 os.environ['CURL_CA_BUNDLE'] = ''
-os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3,4,5,6,7"
+# os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3,4,5,6,7"
 
 base_model_id = "llava-hf/llava-v1.6-mistral-7b-hf"
 # PEFT model path - point to your trained LoRA model directory
