@@ -128,6 +128,10 @@ def gpu_computation(batch):
         yes_logits_batch.append(yes_probs[i].item())
         no_logits_batch.append(no_probs[i].item())
 
+    # Clean up GPU memory after each batch to avoid OOM
+    del model_inputs, outputs, scores, sequences
+    torch.cuda.empty_cache()
+
     return {"yes_logits": yes_logits_batch, "no_logits": no_logits_batch}
 
 
@@ -177,10 +181,11 @@ if __name__ == "__main__":
     torch.cuda.empty_cache()
     # Use single process to avoid OOM when only one GPU is available
     # For multi-GPU setups, you can set num_proc=torch.cuda.device_count() and with_rank=True
+    # Reduced batch_size from 6 to 2 to avoid OOM during inference
     updated_dataset = dataset.map(
         gpu_computation,
         batched=True,
-        batch_size=6,
+        batch_size=2,
         # num_proc=torch.cuda.device_count(),  # Uncomment for multi-GPU
         # with_rank=True,                       # Uncomment for multi-GPU
     )
