@@ -16,6 +16,7 @@ from peft import PeftModel, PeftConfig
 # Modify these paths according to your environment
 CACHE_DIR = os.environ.get('HF_HOME', None)  # Hugging Face cache, None uses default ~/.cache/huggingface
 OUTPUT_DIR = os.environ.get('MLLM_OUTPUT_DIR', './output')  # Directory where trained models are saved
+TEST_DATASET_PATH = os.environ.get('MLLM_TEST_DATASET', 'MicroLens-50k-test-recurrent')  # Test dataset path
 # =======================================
 
 os.environ['CURL_CA_BUNDLE'] = ''
@@ -46,7 +47,9 @@ print(f"PEFT model loaded")
 #print(f"Running merge_and_unload")
 #model = model.merge_and_unload()
 
-dataset = load_from_disk("MicroLens-50k-test-recurrent")
+print(f"Loading test dataset from: {TEST_DATASET_PATH}")
+print(f"Loading PEFT model from: {peft_model_id}")
+dataset = load_from_disk(TEST_DATASET_PATH)
 dataset = dataset.select(range(2100))
 print(dataset)
 
