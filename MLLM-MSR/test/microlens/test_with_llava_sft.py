@@ -20,7 +20,8 @@ TEST_DATASET_PATH = os.environ.get('MLLM_TEST_DATASET', 'MicroLens-50k-test-recu
 # =======================================
 
 os.environ['CURL_CA_BUNDLE'] = ''
-os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3,4,5,6,7"
+# Note: Set CUDA_VISIBLE_DEVICES via command line, e.g.: CUDA_VISIBLE_DEVICES=0,1 python script.py
+# os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3,4,5,6,7"
 
 base_model_id = "llava-hf/llava-v1.6-mistral-7b-hf"
 # PEFT model path - point to your trained LoRA model directory
@@ -156,13 +157,14 @@ def ndcg_at_k(y_true, y_prob, k):
 if __name__ == "__main__":
     set_start_method("spawn")
     torch.cuda.empty_cache()
+    num_gpus = torch.cuda.device_count()
+    print(f"Number of available GPUs: {num_gpus}")
     updated_dataset = dataset.map(
         gpu_computation,
         batched=True,
         batch_size=6,
         with_rank=True,
-        # num_proc=torch.cuda.device_count(),  # one process per GPU
-        num_proc=6  # one process per GPU
+        num_proc=num_gpus  # one process per GPU
     )
     updated_dataset = updated_dataset.sort("user")
     yes_logits = torch.tensor(updated_dataset['yes_logits'])
